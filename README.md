@@ -1,6 +1,6 @@
 # doc-chain
 
-用链式文档依赖网络约束 AI 行为——任何变更必须追溯上游、同步下游，防止幻觉与规则绕过。
+一站式控制 AI 变更边界的文档依赖网络——从 PRD 到交互到 UI 到技术方案再到代码，任何变更必须追溯上游、同步下游，防止幻觉与规则绕过。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -8,7 +8,7 @@
 
 `doc-chain` 是一个 [Kimi Code CLI](https://github.com/MoonshotAI/kimi-cli) / [Claude Code](https://github.com/anthropics/claude-code) / [Codex](https://github.com/openai/codex) 兼容的 **Agent Skill**。
 
-它的核心不是"文档模板"，而是**文档之间的强制性依赖链路**：
+它的核心不是"文档模板"，而是**一站式的边界控制系统**：
 
 - 每份文档头部声明上游来源（`upstream-document`）
 - 修改上游必须同步下游，或标注 `[待同步]`
@@ -23,7 +23,7 @@ AI 辅助开发时，以下场景频繁出现：
 2. **脱节**：改了 PRD 却忘了同步技术方案，导致文档之间不一致
 3. **上下文碎片化**：跨会话后 AI 不记得之前的约束，规则被悄悄绕过
 
-`doc-chain` 通过**可追溯的文档依赖网络**和**可运行的审计脚本**把 AI 锁死在既定事实里。
+`doc-chain` 通过**文档依赖网络**和**可运行的审计脚本**，一站式把 AI 从文档生成到代码落地锁死在既定边界内。
 
 ## 安装
 
@@ -48,8 +48,8 @@ git clone https://github.com/YOUR_USERNAME/doc-chain.git .kimi/skills/doc-chain
 AI 会自动：
 1. 读取 SKILL.md 中的流程定义
 2. 检查项目内是否已有文档
-3. 按模板生成文档，并执行一致性审计
-4. 在文档头部写入 `upstream-document` 依赖表
+3. 按模板生成文档，在头部写入 `upstream-document` 依赖表
+4. 一站式执行完整性与一致性审计
 
 ## 项目结构
 
