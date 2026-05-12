@@ -383,7 +383,7 @@ class DocumentAuditor:
             if not found and "/" in doc_name:
                 found = (self.doc_path.parent / doc_name).exists() or (self.doc_path.parent / (doc_name + ".md")).exists()
             if not found and "规范" not in doc_name and "AGENTS" not in doc_name:
-                # 放宽：全局规范或 AGENTS 可能尚未落地为文件
+                # 放宽：顶层定义或 AGENTS 可能尚未落地为文件
                 self.add_hint(
                     "upstream_not_found",
                     "warning",
@@ -423,7 +423,7 @@ class DocumentAuditor:
             if 2 <= len(t) <= 20:
                 term_counts[t] = term_counts.get(t, 0) + 1
 
-        # 项目自定义术语冲突（从 upstream PRD 全局规范中提取术语表）
+        # 项目自定义术语冲突（从 upstream PRD-顶层定义中提取术语表）
         if term_list:
             found_terms = {t for t in term_counts}
             for term in term_list:
@@ -683,7 +683,7 @@ class UIAuditor(DocumentAuditor):
 
     def run(self):
         self.check_required_sections([
-            "全局规范引用", "组件规范", "页面设计",
+            "顶层定义引用", "组件规范", "页面设计",
         ])
 
         # 只从 §4 页面设计的子章节标题中提取页面编号，避免正文中引用导致误报
@@ -790,7 +790,7 @@ class TestAuditor(DocumentAuditor):
 
 
 class GlobalPRDAuditor(DocumentAuditor):
-    """PRD 全局规范审计器"""
+    """PRD 顶层定义审计器"""
 
     def run(self):
         self.check_required_sections([
@@ -813,13 +813,13 @@ class GlobalPRDAuditor(DocumentAuditor):
                 self.add_issue(
                     "placeholder_detected",
                     "blocking",
-                    "全局规范",
+                    "顶层定义",
                     f"正文出现延迟实现占位词: '{word}'（里程碑表除外）",
                 )
 
 
 class GlobalTechAuditor(DocumentAuditor):
-    """技术全局规范审计器"""
+    """技术顶层定义审计器"""
 
     def run(self):
         self.check_required_sections([

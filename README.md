@@ -66,11 +66,11 @@ doc-chain/
 │   │   ├── tech-step.md              # 技术方案模板
 │   │   ├── test-step.md              # 测试报告模板
 │   │   └── code-audit-report.md      # 代码审计报告模板
-│   ├── global/                       # 全局规范模板
-│   │   ├── prd-global.md             # PRD 全局规范
-│   │   ├── interaction-global.md     # 交互全局规范
-│   │   ├── ui-global.md              # UI 全局规范
-│   │   └── tech-global.md            # 技术全局规范
+│   ├── top-level/                    # 顶层定义模板
+│   │   ├── prd-top-level-template.md # PRD 顶层定义模板
+│   │   ├── interaction-top-level-template.md # 交互顶层定义模板
+│   │   ├── ui-top-level-template.md  # UI 顶层定义模板
+│   │   └── tech-top-level-template.md # 技术顶层定义模板
 │   ├── examples/                     # 示例文档
 │   │   ├── prd-example.md
 │   │   ├── tech-example.md
@@ -93,7 +93,7 @@ doc-chain/
 | 文档 | 类型 | 引用范围 |
 |------|------|---------|
 | PRD-v1-订单模块 | 需求输入 | F001-F006 |
-| 项目技术全局规范 | 规范继承 | 技术栈、公共表、接口约定 |
+| 项目技术-顶层定义 | 规范继承 | 技术栈、公共表、接口约定 |
 ```
 
 ### 2. 变更时的双向约束
