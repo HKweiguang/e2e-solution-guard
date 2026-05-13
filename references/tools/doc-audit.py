@@ -264,7 +264,16 @@ class DocumentAuditor:
         if not numbers:
             return
         for i in range(len(numbers) - 1):
-            if numbers[i + 1] - numbers[i] > 1:
+            gap = numbers[i + 1] - numbers[i]
+            if gap > 1:
+                # 检查是否有预留声明（如"F107、F108 为预留跳号"）
+                skipped = [f"{prefix}{n:03d}" for n in range(numbers[i] + 1, numbers[i + 1])]
+                has_reserved = any(
+                    re.search(rf"{s}.*预留|预留.*{s}|编号段.*{s}|{s}.*编号段", self.raw_text)
+                    for s in skipped
+                )
+                if has_reserved:
+                    continue
                 self.add_issue(
                     "number_gap",
                     "blocking",
