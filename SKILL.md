@@ -1,28 +1,36 @@
 ---
 name: doc-chain
 description: >
-  Document chain management for software projects: generate, review, standardize, audit,
-  and maintain PRDs, interaction designs, UI specs, design systems, technical designs,
-  and test reports with upstream-downstream dependency tracking.
+  End-to-end solution management from idea to code: evaluate ideas, generate and maintain
+  PRDs, interaction designs, UI specs, design systems, technical designs, and test reports
+  with upstream-downstream dependency tracking. Enforces that any change traces back to
+  upstream and syncs downstream, preventing implementation drift.
   Use when the user asks to: (1) evaluate, analyze, or refine a product idea, feature request,
-  or technical proposal before writing docs, (2) create, write, modify, or update any project
-  documentation (PRD, requirements, tech design, interaction design, UI design, test plan,
-  test cases, etc.), (3) review, audit, or check document quality, structure, completeness,
-  numbering continuity, cross-references, or error-code mappings, (4) standardize, align,
-  or check consistency between documents or between code and documents, (5) ensure changes
-  to upstream docs are propagated to downstream docs, or identify missing downstream updates.
+  or technical proposal, (2) create, write, modify, or update any project documentation
+  (PRD, requirements, tech design, interaction design, UI design, test plan, test cases, etc.),
+  (3) review, audit, or check document quality, structure, completeness, numbering continuity,
+  cross-references, or error-code mappings, (4) standardize, align, or check consistency
+  between documents or between code and documents, (5) ensure changes to upstream docs
+  are propagated to downstream docs, or identify missing downstream updates.
   Automatically loads document templates, runs doc-audit.py for mechanical checks, and enforces
   read-only subagent verification.
 ---
 
 # doc-chain
 
-> 用链式文档依赖网络约束 AI 行为——每份文档声明上游来源，变更必须全链路同步。修改上游必须同步下游，修改下游不得超出上游定义。文档是项目的唯一事实来源。
+> 从想法到代码的全链路方案管理——用可追溯的依赖网络锁定事实，防止变更失控。
 
-执行任何文档相关步骤前，先读取项目 AGENTS.md 了解项目信息，再检查项目内是否已有对应的文档。
+doc-chain 的核心不是"写文档"，而是**管理从想法到代码的完整链路中的一切事实**。
+文档只是事实的载体，真正的价值在于：
 
-- **有** → 按已有文档执行，同时检查上下游影响
-- **没有** → 用本 skill 的模板生成文档
+- **任何想法落地前，先评估影响**：分析可行性、识别与现有方案的冲突、明确缺失信息
+- **任何变更必须追溯上游、同步下游**：防止"改了需求忘了改代码"
+- **任何实现必须与约定一致**：代码是事实的最终形态，文档是事实的约定形态
+
+执行任何步骤前，先读取项目 AGENTS.md 了解项目信息，再检查项目内是否已有对应的方案或文档。
+
+- **有** → 按已有事实执行，同时检查上下游影响
+- **没有** → 用本 skill 的模板建立事实
 
 ---
 
