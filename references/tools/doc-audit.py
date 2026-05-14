@@ -259,7 +259,9 @@ class DocumentAuditor:
 
     # ── 通用机械检查 ──
     def check_number_continuity(self, prefix: str, location: str, text: str | None = None):
-        text = text or self.raw_text
+        text = self.filter_delta_text(text or self.raw_text)
+        if not text.strip():
+            return
         numbers = self._collect_numbers(prefix, text)
         if not numbers:
             return
@@ -283,7 +285,9 @@ class DocumentAuditor:
                 )
 
     def check_duplicate_numbers(self, prefix: str, location: str, text: str | None = None):
-        text = text or self.raw_text
+        text = self.filter_delta_text(text or self.raw_text)
+        if not text.strip():
+            return
         pattern = rf"{prefix}(\d{{3}})"
         numbers = re.findall(pattern, text)
         seen: Set[str] = set()
@@ -401,7 +405,9 @@ class DocumentAuditor:
                 )
 
     def check_error_code_format(self, text: str | None = None):
-        text = text or self.raw_text
+        text = self.filter_delta_text(text or self.raw_text)
+        if not text.strip():
+            return
         codes = re.findall(r"`?(G\d{3}|E[A-Z]{1,4}\d{2})`?", text)
         for code in codes:
             if code.startswith("G") and not re.match(r"G\d{3}$", code):
@@ -424,8 +430,11 @@ class DocumentAuditor:
         如果提供 term_list，则检查文档中是否出现 term_list 中的术语变形；
         否则从加粗文本中提取候选术语，并检测常见混用。
         """
+        filtered_text = self.filter_delta_text(self.raw_text)
+        if not filtered_text.strip():
+            return
         # 提取加粗术语
-        bold_terms = re.findall(r"\*\*([^*]+?)\*\*", self.raw_text)
+        bold_terms = re.findall(r"\*\*([^*]+?)\*\*", filtered_text)
         term_counts: Dict[str, int] = {}
         for t in bold_terms:
             t = t.strip()
@@ -446,7 +455,7 @@ class DocumentAuditor:
                         f"文档中同时出现 {' / '.join(matches)}，请确认是否为同一概念",
                     )
         else:
-            # 默认常见混用检测
+            # 默认常见混用检测（在过滤后的文本中进行）
             common_confusions = [
                 ("用户", "客户"),
                 ("订单", "单据"),
@@ -465,14 +474,33 @@ class DocumentAuditor:
 
     # ── 增量审计工具 ──
     def filter_delta_text(self, text: str) -> str:
-        """如果设置了 delta_scope，只保留包含这些标识符的行和上下文。"""
+        """如果设置了 delta_scope，按块保留包含这些标识符的内容。
+
+        分块策略：按空行分块，块内包含任何 delta 标识符则保留整个块。
+        这样既能聚焦变更范围，又不会破坏表格/列表的上下文结构，
+        避免编号连续性等检查因上下文缺失而误报。
+        """
         if not self.delta_scope:
             return text
         lines = text.splitlines()
-        result = []
+        # 按空行分块
+        blocks: List[List[str]] = []
+        current_block: List[str] = []
         for line in lines:
-            if any(scope in line for scope in self.delta_scope):
-                result.append(line)
+            if line.strip() == "":
+                if current_block:
+                    blocks.append(current_block)
+                    current_block = []
+            else:
+                current_block.append(line)
+        if current_block:
+            blocks.append(current_block)
+
+        result: List[str] = []
+        for block in blocks:
+            block_text = "\n".join(block)
+            if any(scope in block_text for scope in self.delta_scope):
+                result.extend(block)
         return "\n".join(result)
 
     def run(self):
@@ -961,11 +989,11 @@ def main():
         upstream_paths=args.upstream,
         delta_scope=delta_scope,
     )
-    # 注入术语表
+    # 执行审计
+    auditor.run()
+    # 如提供了术语表，追加术语一致性检查
     if args.terms:
         auditor.check_term_consistency(args.terms)
-    else:
-        auditor.run()
     print(json.dumps(auditor.report(), ensure_ascii=False, indent=2))
     sys.exit(0 if auditor.report()["passed"] else 1)
 
