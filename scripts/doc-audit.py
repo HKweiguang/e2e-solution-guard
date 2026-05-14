@@ -4,13 +4,13 @@ doc-audit.py — 文档一致性审计工具（标准库 only）
 
 用法:
   # 全量审计
-  python doc-audit.py <doc_path> --type prd --upstream upstream1.md upstream2.md
+  python scripts/doc-audit.py <doc_path> --type prd --upstream upstream1.md upstream2.md
 
   # 增量审计（仅检查变更的功能点/页面/章节）
-  python doc-audit.py <doc_path> --type prd --upstream up1.md --delta F001,F002,P001
+  python scripts/doc-audit.py <doc_path> --type prd --upstream up1.md --delta F001,F002,P001
 
   # 扫描下游影响（输出受影响的下游文档清单）
-  python doc-audit.py <doc_path> --type prd --scan-downstream ./docs/
+  python scripts/doc-audit.py <doc_path> --type prd --scan-downstream ./docs/
 
 输出: 结构化 JSON，包含 mechanical_issues / semantic_hints / summary
 """

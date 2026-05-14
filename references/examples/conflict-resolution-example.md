@@ -130,7 +130,7 @@ AI 向用户呈现影响范围：
 
 AI 在项目文档目录中创建/更新冲突记录文件，统一追踪所有 `[待同步]` 项：
 
-**文件**：`docs/CONFLICT-LOG.md`（或 `.doc-chain/conflicts.md`，由项目自定）
+**文件**：`docs/CONFLICT-LOG.md`（或 `.e2e-solution-guard/conflicts.md`，由项目自定）
 
 ```markdown
 # 文档冲突记录

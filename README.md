@@ -1,4 +1,4 @@
-# doc-chain
+# e2e-solution-guard
 
 一站式控制 AI 变更边界的文档依赖网络——从 PRD 到交互到 UI 到技术方案再到代码，任何变更必须追溯上游、同步下游，防止幻觉与规则绕过。
 
@@ -6,7 +6,7 @@
 
 ## 是什么
 
-`doc-chain` 是一个 [Kimi Code CLI](https://github.com/MoonshotAI/kimi-cli) / [Claude Code](https://github.com/anthropics/claude-code) / [Codex](https://github.com/openai/codex) 兼容的 **Agent Skill**。
+`e2e-solution-guard` 是一个 [Kimi Code CLI](https://github.com/MoonshotAI/kimi-cli) / [Claude Code](https://github.com/anthropics/claude-code) / [Codex](https://github.com/openai/codex) 兼容的 **Agent Skill**。
 
 它的核心不是"文档模板"，而是**一站式的边界控制系统**：
 
@@ -23,7 +23,7 @@ AI 辅助开发时，以下场景频繁出现：
 2. **脱节**：改了 PRD 却忘了同步技术方案，导致文档之间不一致
 3. **上下文碎片化**：跨会话后 AI 不记得之前的约束，规则被悄悄绕过
 
-`doc-chain` 通过**文档依赖网络**和**可运行的审计脚本**，一站式把 AI 从文档生成到代码落地锁死在既定边界内。
+`e2e-solution-guard` 通过**文档依赖网络**和**可运行的审计脚本**，一站式把 AI 从文档生成到代码落地锁死在既定边界内。
 
 ## 安装
 
@@ -31,10 +31,10 @@ AI 辅助开发时，以下场景频繁出现：
 
 ```bash
 # 方法1：克隆到用户级 skills 目录（任意项目可用）
-git clone https://github.com/YOUR_USERNAME/doc-chain.git ~/.config/agents/skills/doc-chain
+git clone https://github.com/YOUR_USERNAME/e2e-solution-guard.git ~/.config/agents/skills/e2e-solution-guard
 
 # 方法2：克隆到项目级 skills 目录（仅当前项目可用）
-git clone https://github.com/YOUR_USERNAME/doc-chain.git .kimi/skills/doc-chain
+git clone https://github.com/YOUR_USERNAME/e2e-solution-guard.git .kimi/skills/e2e-solution-guard
 ```
 
 ## 使用
@@ -42,7 +42,7 @@ git clone https://github.com/YOUR_USERNAME/doc-chain.git .kimi/skills/doc-chain
 在 Kimi CLI 中输入：
 
 ```sh
-/skill:doc-chain 帮我写订单模块的 PRD
+/skill:e2e-solution-guard 帮我写订单模块的 PRD
 ```
 
 AI 会自动：
@@ -54,7 +54,7 @@ AI 会自动：
 ## 项目结构
 
 ```
-doc-chain/
+e2e-solution-guard/
 ├── SKILL.md                          # Skill 主文件（AI 的指令手册）
 ├── README.md                         # 本文件（给人类看的）
 ├── LICENSE                           # MIT
@@ -77,8 +77,16 @@ doc-chain/
 │   │   ├── upstream-change-example.md    # 回改流程示例
 │   │   ├── conflict-resolution-example.md # 冲突处理示例
 │   │   └── ...
-│   └── tools/
-│       └── doc-audit.py              # 文档一致性审计脚本（标准库 only）
+│   ├── rules/                        # 一致性硬规则
+│   │   └── consistency-rules.md      # 编号连续性、双向引用、术语一致性
+│   └── workflow/                     # 执行流程
+│       ├── idea-evaluation.md        # 想法评估流程
+│       ├── document-workflow.md      # 文档生成/修改流程
+│       ├── change-propagation.md     # 变更传播流程
+│       ├── code-verification.md      # 代码验证流程
+│       └── audit-procedure.md        # 审计执行策略
+├── scripts/
+│   └── doc-audit.py                  # 文档一致性审计脚本（标准库 only）
 ```
 
 ## 核心机制
@@ -107,13 +115,13 @@ doc-chain/
 
 ```bash
 # 全量审计
-python references/tools/doc-audit.py PRD.md --type prd
+python scripts/doc-audit.py PRD.md --type prd
 
 # 增量审计（只检查变更的功能点）
-python references/tools/doc-audit.py PRD.md --type prd --delta F001,F003
+python scripts/doc-audit.py PRD.md --type prd --delta F001,F003
 
 # 扫描下游影响
-python references/tools/doc-audit.py PRD.md --type prd --scan-downstream ./docs/
+python scripts/doc-audit.py PRD.md --type prd --scan-downstream ./docs/
 ```
 
 审计覆盖：

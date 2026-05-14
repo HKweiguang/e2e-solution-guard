@@ -111,7 +111,7 @@ AI 执行下游影响扫描：
 
 ```bash
 # 扫描 PRD 的直接下游
-python references/tools/doc-audit.py PRD-v1-订单模块.md --type prd --scan-downstream ./docs/
+python scripts/doc-audit.py PRD-v1-订单模块.md --type prd --scan-downstream ./docs/
 ```
 
 **扫描结果**：
@@ -195,19 +195,19 @@ python references/tools/doc-audit.py PRD-v1-订单模块.md --type prd --scan-do
 
 ```bash
 # 验证 PRD
-python doc-audit.py PRD-v1-订单模块.md --type prd
+python scripts/doc-audit.py PRD-v1-订单模块.md --type prd
 # 结果：passed
 
 # 验证交互设计（增量）
-python doc-audit.py 交互设计-订单交易流程.md --type interaction --delta P007
+python scripts/doc-audit.py 交互设计-订单交易流程.md --type interaction --delta P007
 # 结果：passed
 
 # 验证技术方案（增量）
-python doc-audit.py TECH-v1-订单服务.md --type tech --delta F007 --upstream PRD-v1-订单模块.md
+python scripts/doc-audit.py TECH-v1-订单服务.md --type tech --delta F007 --upstream PRD-v1-订单模块.md
 # 结果：passed
 
 # 验证测试报告
-python doc-audit.py 测试报告-订单功能测试.md --type test --upstream PRD-v1-订单模块.md TECH-v1-订单服务.md
+python scripts/doc-audit.py 测试报告-订单功能测试.md --type test --upstream PRD-v1-订单模块.md TECH-v1-订单服务.md
 # 结果：passed
 ```
 

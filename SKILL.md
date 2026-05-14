@@ -1,5 +1,5 @@
 ---
-name: doc-chain
+name: e2e-solution-guard
 description: >
   End-to-end solution management from idea to code: evaluate ideas, generate and maintain
   PRDs, interaction designs, UI specs, design systems, technical designs, and test reports
@@ -12,15 +12,15 @@ description: >
   cross-references, or error-code mappings, (4) standardize, align, or check consistency
   between documents or between code and documents, (5) ensure changes to upstream docs
   are propagated to downstream docs, or identify missing downstream updates.
-  Automatically loads document templates, runs doc-audit.py for mechanical checks, and enforces
+  Automatically loads document templates, runs `scripts/doc-audit.py` for mechanical checks, and enforces
   read-only subagent verification.
 ---
 
-# doc-chain
+# e2e-solution-guard
 
 > 从想法到代码的全链路方案管理——用可追溯的依赖网络锁定事实，防止变更失控。
 
-doc-chain 的核心不是"写文档"，而是**管理从想法到代码的完整链路中的一切事实**。
+e2e-solution-guard 的核心不是"写文档"，而是**管理从想法到代码的完整链路中的一切事实**。
 文档只是事实的载体，真正的价值在于：
 
 - **任何想法落地前，先评估影响**：分析可行性、识别与现有方案的冲突、明确缺失信息
@@ -119,7 +119,7 @@ doc-chain 的核心不是"写文档"，而是**管理从想法到代码的完整
 
 | 场景 | 必须执行的操作 | 红线 |
 |------|--------------|------|
-| **修改上游文档** | 1. 分层扫描下游（`doc-audit.py --scan-downstream`）<br>2. 列出影响范围并按优先级排序<br>3. 询问用户是否级联修改<br>4. **用户确认** → 同步修改所有下游<br>5. **用户拒绝** → 标注 `[待同步]` | **禁止**不同步也不标注就留下不一致 |
+| **修改上游文档** | 1. 分层扫描下游（`scripts/doc-audit.py --scan-downstream`）<br>2. 列出影响范围并按优先级排序<br>3. 询问用户是否级联修改<br>4. **用户确认** → 同步修改所有下游<br>5. **用户拒绝** → 标注 `[待同步]` | **禁止**不同步也不标注就留下不一致 |
 | **修改下游文档** | 1. 读取所有上游文档<br>2. 逐条比对是否在上游定义范围内<br>3. **未超出** → 直接修改<br>4. **超出** → **立即停止**，先改上游 | **禁止**擅自扩展上游定义 |
 
 **范围判定标准**：
@@ -129,4 +129,4 @@ doc-chain 的核心不是"写文档"，而是**管理从想法到代码的完整
 
 ---
 
-*Skill 版本：v1.7*
+*Skill 版本：v2.0*

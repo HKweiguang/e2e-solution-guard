@@ -105,7 +105,12 @@ subagent-2 (语义): prompt="加载全文+上下游，执行所有[模型]标记
 
 ## 语义审计执行方法
 
-subagent 的审计任务必须同时产出**机械检查结果**和**语义审计结果**。机械检查通过调用 `doc-audit.py` 完成，语义检查由模型直接分析完成，两者在同一个 subagent 会话内执行，缺一不可。
+subagent 的审计任务必须同时产出**机械检查结果**和**语义审计结果**。机械检查通过调用 skill 根目录下的 `scripts/doc-audit.py` 完成，语义检查由模型直接分析完成，两者在同一个 subagent 会话内执行，缺一不可。
+
+**注意**：如果当前工作目录不是 skill 根目录，需使用完整路径调用，例如：
+```bash
+python /path/to/e2e-solution-guard/scripts/doc-audit.py <doc> --type <type>
+```
 
 ### 执行步骤
 
