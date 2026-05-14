@@ -1,12 +1,15 @@
 ---
 name: doc-chain
 description: >
-  Document chain management for software projects: generate, audit, and maintain PRDs,
-  interaction designs, UI specs, technical designs, and test reports with upstream-downstream dependency tracking.
-  Use when the user asks to: (1) create or modify any project documentation (PRD, tech design,
-  interaction design, UI design, test plan, etc.), (2) check consistency between documents or
-  between code and documents, (3) audit document structure, numbering continuity, cross-references,
-  or error-code mappings, (4) ensure changes to upstream docs are propagated to downstream docs.
+  Document chain management for software projects: generate, review, standardize, audit,
+  and maintain PRDs, interaction designs, UI specs, design systems, technical designs,
+  and test reports with upstream-downstream dependency tracking.
+  Use when the user asks to: (1) create, write, modify, or update any project documentation
+  (PRD, requirements, tech design, interaction design, UI design, test plan, test cases, etc.),
+  (2) review, audit, or check document quality, structure, completeness, numbering continuity,
+  cross-references, or error-code mappings, (3) standardize, align, or check consistency
+  between documents or between code and documents, (4) ensure changes to upstream docs
+  are propagated to downstream docs, or identify missing downstream updates.
   Automatically loads document templates, runs doc-audit.py for mechanical checks, and enforces
   read-only subagent verification.
 ---
