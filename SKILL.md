@@ -4,12 +4,13 @@ description: >
   Document chain management for software projects: generate, review, standardize, audit,
   and maintain PRDs, interaction designs, UI specs, design systems, technical designs,
   and test reports with upstream-downstream dependency tracking.
-  Use when the user asks to: (1) create, write, modify, or update any project documentation
-  (PRD, requirements, tech design, interaction design, UI design, test plan, test cases, etc.),
-  (2) review, audit, or check document quality, structure, completeness, numbering continuity,
-  cross-references, or error-code mappings, (3) standardize, align, or check consistency
-  between documents or between code and documents, (4) ensure changes to upstream docs
-  are propagated to downstream docs, or identify missing downstream updates.
+  Use when the user asks to: (1) evaluate, analyze, or refine a product idea, feature request,
+  or technical proposal before writing docs, (2) create, write, modify, or update any project
+  documentation (PRD, requirements, tech design, interaction design, UI design, test plan,
+  test cases, etc.), (3) review, audit, or check document quality, structure, completeness,
+  numbering continuity, cross-references, or error-code mappings, (4) standardize, align,
+  or check consistency between documents or between code and documents, (5) ensure changes
+  to upstream docs are propagated to downstream docs, or identify missing downstream updates.
   Automatically loads document templates, runs doc-audit.py for mechanical checks, and enforces
   read-only subagent verification.
 ---
@@ -43,6 +44,7 @@ description: >
 
 | 场景 | 读取文件 | 说明 |
 |------|---------|------|
+| 评估想法、需求或技术方案 | `references/workflow/idea-evaluation.md` | Gap分析、方案融合判断、影响范围评估、可行性结论 |
 | 生成或修改任何文档 | `references/workflow/document-workflow.md` | 阶段1-3完整流程：前置检查、加载上下文、影响评估、生成/修改、审计 |
 | 发现上游缺陷需回改 | `references/workflow/change-propagation.md` | 回改触发、下游扫描、级联修改、重新验证 |
 | 代码已实现，验证一致性 | `references/workflow/code-verification.md` | 文档→代码闭环：定位代码、五项对比、产出审计报告 |
@@ -60,13 +62,13 @@ description: >
 
 1. **项目已有文档** > **Skill 模板**。文档未定义的部分，参照 Skill 模板。
 
-### 通用行为约束（适用于所有步骤）
+### 通用行为约束（适用于所有方案分析与设计工作）
 
-- **执行前做 gap 分析，确认后再输出**：加载模板和上游后，先识别缺失信息，列成问题清单询问用户，禁止基于模糊需求直接输出
-- **不要脑补，不要过度复杂化**：未定义的功能点、规则、字段、接口禁止自行补充
-- **理性独立，不迎合，遇冲突/模糊必停**：发现不合理或与上下游矛盾的地方，必须明确提出质疑，禁止用默认假设继续
-- **缺少前置定义禁止继续**：前置规范缺失时暂停，用户拒绝补全 → **立即停止**
-- **逐步推进，一次只改一份文档**：当前文档完成并确认无异常后，再开始下一份
+- **执行前做 gap 分析，确认后再输出**：加载现有方案和上下文后，先识别缺失信息、潜在冲突和范围不明确的地方，列成问题清单询问用户。禁止基于模糊想法直接输出完整方案、文档或代码
+- **不要脑补，不要过度复杂化**：未定义的功能点、规则、字段、接口、状态值禁止自行补充。避免在用户要求之外增加不必要的复杂度、层级或依赖
+- **理性独立，不迎合，遇冲突/模糊必停**：基于专业判断分析用户需求，发现不合理、有风险、与最佳实践冲突或与现有方案矛盾的地方，必须明确提出质疑和建议。遇到需求不明确、规范冲突、技术不可行等情况，禁止用默认假设继续
+- **缺少前置定义禁止继续**：当前工作依赖的前置规范（文档/接口/配置/顶层定义）缺失时，暂停并询问用户是否补全。用户拒绝 → **立即停止**
+- **逐步推进，一次只推进一个单元**：当前分析、文档或代码单元完成并确认无异常后，再开始下一个。禁止一次性批量输出多份文档或大范围改动
 
 ---
 
