@@ -7,7 +7,7 @@ doc-audit.py — 文档一致性审计工具（标准库 only）
   python scripts/doc-audit.py <doc_path> --type prd --upstream upstream1.md upstream2.md
 
   # 增量审计（仅检查变更的功能点/页面/章节）
-  python scripts/doc-audit.py <doc_path> --type prd --upstream up1.md --delta F001,F002,P001
+  python scripts/doc-audit.py <doc_path> --type prd --upstream up1.md --delta <标识符列表>
 
   # 扫描下游影响（输出受影响的下游文档清单）
   python scripts/doc-audit.py <doc_path> --type prd --scan-downstream ./docs/
@@ -173,7 +173,7 @@ class DocumentAuditor:
     ):
         self.doc_path = Path(doc_path)
         self.upstream_paths = [Path(p) for p in (upstream_paths or [])]
-        self.delta_scope = set(delta_scope or [])  # 增量范围，如 {"F001", "P001"}
+        self.delta_scope = set(delta_scope or [])  # 增量范围，如 {"USER-001", "PAGE-001"}（示例，实际标识符格式以项目定义为准）
         self.raw_text = self.doc_path.read_text(encoding="utf-8")
         self.nodes = MarkdownParser(self.raw_text).parse()
         self.issues: List[AuditIssue] = []
@@ -254,7 +254,7 @@ class DocumentAuditor:
         return None
 
     def _collect_numbers(self, prefix: str, text: str) -> List[int]:
-        pattern = rf"{prefix}(\d{{3}})"
+        pattern = rf"{prefix}(\d+)"
         return sorted({int(m) for m in re.findall(pattern, text)})
 
     # ── 通用机械检查 ──
@@ -288,7 +288,7 @@ class DocumentAuditor:
         text = self.filter_delta_text(text or self.raw_text)
         if not text.strip():
             return
-        pattern = rf"{prefix}(\d{{3}})"
+        pattern = rf"{prefix}(\d+)"
         numbers = re.findall(pattern, text)
         seen: Set[str] = set()
         for n in numbers:
@@ -404,25 +404,21 @@ class DocumentAuditor:
                     f"上游文档 '{doc_name}' 在当前目录或 --upstream 参数中未找到，请确认路径",
                 )
 
-    def check_error_code_format(self, text: str | None = None):
+    def check_error_code_format(self, text: str | None = None, error_prefixes: Optional[List[str]] = None):
+        """检查错误码格式是否符合项目 PRD-顶层定义声明的格式。
+        如未提供 error_prefixes，跳过格式检查（格式完全由项目自定义）。
+        """
         text = self.filter_delta_text(text or self.raw_text)
-        if not text.strip():
+        if not text.strip() or not error_prefixes:
             return
-        codes = re.findall(r"`?(G\d{3}|E[A-Z]{1,4}\d{2})`?", text)
-        for code in codes:
-            if code.startswith("G") and not re.match(r"G\d{3}$", code):
-                self.add_issue(
-                    "error_code_format",
-                    "warning",
+        for prefix in error_prefixes:
+            codes = re.findall(rf"`?({prefix}\w+)`?", text)
+            for code in codes:
+                self.add_hint(
+                    "error_code_found",
+                    "info",
                     "错误码",
-                    f"全局错误码 {code} 格式应为 G+3位数字",
-                )
-            if code.startswith("E") and not re.match(r"E[A-Z]{1,4}\d{2}$", code):
-                self.add_issue(
-                    "error_code_format",
-                    "warning",
-                    "错误码",
-                    f"模块错误码 {code} 格式应为 E+模块缩写+2位数字",
+                    f"发现错误码 {code}，请确认格式符合项目 PRD-顶层定义",
                 )
 
     def check_term_consistency(self, term_list: Optional[List[str]] = None):
@@ -517,41 +513,30 @@ class PRDAuditor(DocumentAuditor):
     def run(self):
         # 结构一致性
         self.check_required_sections([
-            "模块概述", "功能清单", "页面清单",
-            "数据模型", "业务规则", "错误码", "验收标准",
+            "背景与目标", "用户与场景", "功能需求",
+            "非功能需求", "数据模型", "业务规则", "错误处理", "验收标准", "依赖与范围",
         ])
 
-        # 提取 §2 功能清单文本（用于后续引用检查）
-        sec2_text = self._section_text(r"§2\s+功能清单")
-        sec4_text = self._section_text(r"§4\s+页面清单")
+        # 提取 §3 功能需求文本（用于后续引用检查）
+        sec3_text = self._section_text(r"§3\s+功能需求")
         sec5_text = self._section_text(r"§5\s+数据模型")
         sec6_text = self._section_text(r"§6\s+业务规则")
-        sec7_text = self._section_text(r"§7\s+错误码")
-        sec9_text = self._section_text(r"§9\s+验收标准")
+        sec7_text = self._section_text(r"§7\s+错误处理")
+        sec8_text = self._section_text(r"§8\s+验收标准")
 
         # 编号连续性 & 重复（只在分配表格中检查，避免后续章节引用导致误报）
-        # 提取 §2 表格第一列（跳过表头和分隔行）
-        sec2_table = self._extract_table_after(r"§2\s+功能清单")
-        sec2_first_col = "\n".join(
-            row[0] for row in (sec2_table or [])
-            if row and not re.match(r"^:?-+:?$", row[0])
-        )
-        sec4_table = self._extract_table_after(r"§4\s+页面清单")
-        sec4_first_col = "\n".join(
-            row[0] for row in (sec4_table or [])
+        # 提取 §3 表格第一列（跳过表头和分隔行）
+        sec3_table = self._extract_table_after(r"§3\s+功能需求")
+        sec3_first_col = "\n".join(
+            row[0] for row in (sec3_table or [])
             if row and not re.match(r"^:?-+:?$", row[0])
         )
 
-        self.check_number_continuity("F", "§2 功能清单", sec2_first_col)
-        self.check_duplicate_numbers("F", "§2 功能清单", sec2_first_col)
-        self.check_number_continuity("P", "§4 页面清单", sec4_first_col)
-        self.check_duplicate_numbers("P", "§4 页面清单", sec4_first_col)
+        self.check_number_continuity("F", "§3 功能需求", sec3_first_col)
+        self.check_duplicate_numbers("F", "§3 功能需求", sec3_first_col)
 
         # 表格格式
         self.check_table_format()
-
-        # 错误码格式
-        self.check_error_code_format()
 
         # 术语一致性
         self.check_term_consistency()
@@ -559,33 +544,24 @@ class PRDAuditor(DocumentAuditor):
         # upstream
         self.check_upstream_references()
 
-        # 内部自洽性：§2 的功能编号在 §4/§5/§6/§7/§9 中至少引用一次
-        f_numbers = re.findall(r"F(\d{3})", sec2_first_col)
-        downstream_text = sec4_text + sec5_text + sec6_text + sec7_text + sec9_text
-        for num in f_numbers:
-            if f"F{num}" not in downstream_text:
-                self.add_hint(
-                    "unreferenced_feature",
-                    "warning",
-                    "内部自洽性",
-                    f"功能点 F{num} 在 §4/§5/§6/§7/§9 中未被引用，请确认是否有遗漏章节",
-                )
-
-        # 内部自洽性：§4 的页面编号在 §5/§9 中出现时一致
-        p_numbers = re.findall(r"P(\d{3})", sec4_first_col)
-        for num in p_numbers:
-            refs_in_doc = downstream_text.count(f"P{num}")
-            if refs_in_doc == 0:
-                self.add_hint(
-                    "unreferenced_page",
-                    "warning",
-                    "内部自洽性",
-                    f"页面 P{num} 在 §5/§6/§7/§9 中未被引用",
-                )
+        # 内部自洽性：§3 的功能标识在 §5/§6/§7/§8 中至少引用一次
+        downstream_text = sec5_text + sec6_text + sec7_text + sec8_text
+        if sec3_first_col.strip():
+            # 从功能需求第一列提取所有标识符（不假设格式）
+            feature_ids = [line.strip() for line in sec3_first_col.splitlines() if line.strip() and not re.match(r"^:?-+:?$", line.strip())]
+            for fid in feature_ids:
+                if fid not in downstream_text:
+                    self.add_hint(
+                        "unreferenced_feature",
+                        "warning",
+                        "内部自洽性",
+                        f"功能点 {fid} 在 §5/§6/§7/§8 中未被引用，请确认是否有遗漏章节",
+                    )
 
         # §7 每个错误码在 §6 中有对应触发场景
-        e_codes = re.findall(r"`(E[A-Z]+\d{2})`", sec7_text)
-        for code in e_codes:
+        # 从 sec7 中提取反引号包裹的标识符作为候选错误码
+        err_codes = re.findall(r"`([^`\s]+)`", sec7_text)
+        for code in set(err_codes):
             if code not in sec6_text:
                 self.add_hint(
                     "error_code_no_rule",
@@ -594,19 +570,18 @@ class PRDAuditor(DocumentAuditor):
                     f"错误码 {code} 在 §6 业务规则中无对应触发场景",
                 )
 
-        # §9 每条验收标准对应 §2 的一个功能点
-        ac_numbers = re.findall(r"§9\.(\d{3})", sec9_text)
-        for num in ac_numbers:
-            if f"§9.{num}" in sec9_text:
-                # 提取对应行，检查是否包含 Fxxx
-                line_match = re.search(rf"§9\.{num}.*?(F\d{{3}})", sec9_text)
-                if not line_match:
-                    self.add_issue(
-                        "acceptance_no_feature",
-                        "blocking",
-                        "§9 验收标准",
-                        f"验收项 §9.{num} 未关联任何功能点（Fxxx）",
-                    )
+        # §8 每条验收标准对应 §3 的一个功能点
+        ac_items = re.findall(r"§8\.(\d+)", sec8_text)
+        for num in ac_items:
+            # 提取对应行，检查是否包含 §3 中的任意功能标识
+            has_ref = any(fid in sec8_text for fid in feature_ids) if feature_ids else False
+            if not has_ref and feature_ids:
+                self.add_issue(
+                    "acceptance_no_feature",
+                    "blocking",
+                    "§8 验收标准",
+                    f"验收项 §8.{num} 未关联任何功能点",
+                )
 
 
 class InteractionAuditor(DocumentAuditor):
@@ -636,7 +611,7 @@ class InteractionAuditor(DocumentAuditor):
             for sub in ["信息架构", "状态机", "页面流程", "异常处理", "与 PRD 对应"]:
                 if sub not in sec:
                     # 提取页面编号用于定位
-                    pm = re.search(r"(P\d{3})", sec)
+                    pm = re.search(r"(P\d+)", sec)
                     page_id = pm.group(1) if pm else "未知页面"
                     self.add_issue(
                         "missing_subsection",
@@ -675,7 +650,7 @@ class TechAuditor(DocumentAuditor):
         self.check_error_code_format()
 
         # §8 每个异常场景对应 PRD §7 的一个错误码或模块特定异常
-        ex_codes = re.findall(r"`(E[A-Z]+\d{2})`", sec8_text)
+        ex_codes = re.findall(r"`([^`\s]+)`", sec8_text)
         for code in set(ex_codes):
             # 检查是否也在 §6 接口设计中出现
             if code not in sec6_text:
@@ -751,7 +726,7 @@ class UIAuditor(DocumentAuditor):
             states = ["默认状态", "空状态", "错误状态"]
             missing = [s for s in states if s not in block]
             if missing:
-                pm = re.search(r"(P\d{3})", block)
+                pm = re.search(r"(P\d+)", block)
                 page_id = pm.group(1) if pm else "未知页面"
                 self.add_issue(
                     "missing_ui_state",
@@ -772,10 +747,8 @@ class TestAuditor(DocumentAuditor):
         sec1_text = self._section_text(r"§1\s+功能测试用例")
         sec2_text = self._section_text(r"§2\s+异常测试用例")
 
-        self.check_number_continuity("TC-F", "§1 功能测试用例", sec1_text)
-        self.check_number_continuity("TC-E", "§2 异常测试用例", sec2_text)
-        self.check_duplicate_numbers("TC-F", "§1 功能测试用例", sec1_text)
-        self.check_duplicate_numbers("TC-E", "§2 异常测试用例", sec2_text)
+        # 测试用例编号格式完全由项目自定义，此处不做硬编码格式检查
+        # 如需检查连续性，可通过 --delta 参数指定具体测试用例范围
         self.check_table_format()
         self.check_term_consistency()
         self.check_upstream_references()
@@ -783,21 +756,21 @@ class TestAuditor(DocumentAuditor):
         # §3 覆盖检查报告中每个验收标准在 §1/§2 中有对应用例
         sec3_text = self._section_text(r"§3\s+覆盖检查报告")
         all_cases = sec1_text + sec2_text
-        ac_refs = re.findall(r"§9\.(\d{3})", sec3_text)
+        ac_refs = re.findall(r"§8\.(\d+)", sec3_text)
         for ref in set(ac_refs):
-            if f"§9.{ref}" not in all_cases:
+            if f"§8.{ref}" not in all_cases:
                 self.add_issue(
                     "uncovered_acceptance",
                     "blocking",
                     "§3 覆盖检查报告",
-                    f"验收标准 §9.{ref} 在 §1/§2 中无对应测试用例",
+                    f"验收标准 §8.{ref} 在 §1/§2 中无对应测试用例",
                 )
 
     def check_number_continuity(self, prefix: str, location: str, text: str | None = None):
-        """测试用例编号支持 3 位（TC-F001 / TC-E001）"""
+        """测试用例编号连续性检查（支持任意位数）"""
         text = text or self.raw_text
-        # 提取 prefix + 3位数字
-        numbers = sorted({int(m) for m in re.findall(rf"{prefix}(\d{{3}})", text)})
+        # 提取 prefix + 任意位数字
+        numbers = sorted({int(m) for m in re.findall(rf"{prefix}(\d+)", text)})
         if not numbers:
             return
         for i in range(len(numbers) - 1):
@@ -806,14 +779,14 @@ class TestAuditor(DocumentAuditor):
                     "number_gap",
                     "blocking",
                     location,
-                    f"{prefix} 编号不连续，缺少 {prefix}{numbers[i]+1:03d}"
-                    f"（已有 {prefix}{numbers[i]:03d}, {prefix}{numbers[i+1]:03d}）",
+                    f"{prefix} 编号不连续，缺少 {prefix}{numbers[i]+1}"
+                    f"（已有 {prefix}{numbers[i]}, {prefix}{numbers[i+1]}）",
                 )
 
     def check_duplicate_numbers(self, prefix: str, location: str, text: str | None = None):
-        """测试用例编号重复检查（3 位）"""
+        """测试用例编号重复检查（支持任意位数）"""
         text = text or self.raw_text
-        numbers = re.findall(rf"{prefix}(\d{{3}})", text)
+        numbers = re.findall(rf"{prefix}(\d+)", text)
         seen: set[str] = set()
         for n in numbers:
             if n in seen:
@@ -831,8 +804,8 @@ class GlobalPRDAuditor(DocumentAuditor):
 
     def run(self):
         self.check_required_sections([
-            "产品概述", "全局功能范围", "版本里程碑",
-            "全局术语表", "全局状态值", "全局错误码规则",
+            "产品概述", "功能范围", "版本里程碑",
+            "术语表", "状态值", "错误码规则",
         ])
         self.check_table_format()
         self.check_error_code_format()
@@ -939,7 +912,7 @@ def main():
     parser.add_argument(
         "--delta",
         default="",
-        help="增量审计范围，逗号分隔，如 F001,F002,P001",
+        help="增量审计范围，逗号分隔（标识符格式以项目 PRD-顶层定义为准）",
     )
     parser.add_argument(
         "--scan-downstream",

@@ -59,7 +59,6 @@ e2e-solution-guard 的核心不是"写文档"，而是**管理从想法到代码
 | 启动审计 | `references/workflow/audit-procedure.md` | subagent审计方法、语义审计执行步骤、配置建议 |
 | 需要具体步骤模板 | `references/steps/*-step.md` | PRD/交互/UI/技术/测试的文档结构和写作要求 |
 | 需要顶层定义模板 | `references/top-level/*-top-level-template.md` | 全局规范模板（生成项目版本时参考） |
-| 需要示例 | `references/examples/*-example.md` | 各步骤的示例文档 |
 | 生成/修改后自查 | `references/rules/consistency-rules.md` | 编号连续性、双向引用、术语一致性、顶层定义交叉对齐等硬规则 |
 
 ---
@@ -82,14 +81,14 @@ e2e-solution-guard 的核心不是"写文档"，而是**管理从想法到代码
 
 ## 3. 模板清单
 
-| 步骤 | 步骤模板 | 顶层定义模板 | 示例文档 |
-|------|---------|-------------|---------|
-| PRD | `references/steps/prd-step.md` | `references/top-level/prd-top-level-template.md` | `references/examples/prd-example.md` |
-| 交互设计 | `references/steps/interaction-step.md` | `references/top-level/interaction-top-level-template.md` | `references/examples/interaction-example.md` |
-| UI 设计 | `references/steps/ui-step.md` | `references/top-level/ui-top-level-template.md` | `references/examples/ui-example.md` |
-| 技术方案 | `references/steps/tech-step.md` | `references/top-level/tech-top-level-template.md` | `references/examples/tech-example.md` |
-| 测试 | `references/steps/test-step.md` | — | `references/examples/test-example.md` |
-| 代码审计 | `references/steps/code-audit-report.md` | — | `references/examples/code-audit-example.md` |
+| 步骤 | 步骤模板 | 顶层定义模板 |
+|------|---------|-------------|
+| PRD | `references/steps/prd-step.md` | `references/top-level/prd-top-level-template.md` |
+| 交互设计 | `references/steps/interaction-step.md` | `references/top-level/interaction-top-level-template.md` |
+| UI 设计 | `references/steps/ui-step.md` | `references/top-level/ui-top-level-template.md` |
+| 技术方案 | `references/steps/tech-step.md` | `references/top-level/tech-top-level-template.md` |
+| 测试 | `references/steps/test-step.md` | — |
+| 代码审计 | `references/steps/code-audit-report.md` | — |
 
 **模板分工**：
 - `top-level/` — 定义跨模块共享的规则体系。**注意**：这些文件是 Skill 内部模板，生成项目顶层定义时禁止将其中的元说明段落（「章节结构」「写作要求」「检查清单」等）复制到项目文档中
@@ -113,7 +112,7 @@ e2e-solution-guard 的核心不是"写文档"，而是**管理从想法到代码
 
 每份文档必须通过文件头部的**上游文档**表格，声明：
 1. **引用了哪些上游文档**（如 PRD、顶层定义、交互设计）
-2. **引用了上游的哪些内容**（如功能点 `F001-F005`、页面 `P001-P003`）
+2. **引用了上游的哪些内容**（如功能点 `USER-001`–`USER-005`、页面 `PAGE-001`–`PAGE-003`）
 
 **变更时的强制约束**：
 
@@ -129,4 +128,4 @@ e2e-solution-guard 的核心不是"写文档"，而是**管理从想法到代码
 
 ---
 
-*Skill 版本：v2.0*
+*Skill 版本：v2.1*
