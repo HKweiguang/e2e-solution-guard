@@ -588,11 +588,22 @@ class InteractionAuditor(DocumentAuditor):
     """交互设计文档审计器"""
 
     def run(self):
+        # 文档级检查
         self.check_required_sections([
-            "信息架构", "状态机", "页面流程", "异常处理", "与 PRD 对应",
+            "设计系统引用", "页面结构", "组件交互", "状态机", "页面流程", "异常处理", "与 PRD 对应",
         ])
 
-        # 提取所有页面章节文本
+        # 检查文档级"设计系统引用"
+        doc_text = "\n".join([n.content for n in self.nodes])
+        if "设计系统引用" not in doc_text:
+            self.add_issue(
+                "missing_design_system_reference",
+                "blocking",
+                "交互设计文档",
+                "缺少文档级章节: 设计系统引用",
+            )
+
+        # 提取所有页面章节文本（一级标题匹配页面编号格式）
         page_sections: List[str] = []
         current_section = ""
         page_titles: List[str] = []
@@ -607,8 +618,9 @@ class InteractionAuditor(DocumentAuditor):
         if current_section:
             page_sections.append(current_section)
 
+        # 每个页面检查 6 个必含子节
         for sec in page_sections:
-            for sub in ["信息架构", "状态机", "页面流程", "异常处理", "与 PRD 对应"]:
+            for sub in ["页面结构", "组件交互", "状态机", "页面流程", "异常处理", "与 PRD 对应"]:
                 if sub not in sec:
                     # 提取页面编号用于定位
                     pm = re.search(r"(P\d+)", sec)
