@@ -128,7 +128,7 @@ python scripts/doc-audit.py PRD.md --type prd --scan-downstream ./docs/
 - 编号连续性 & 重复检测
 - upstream-document 引用有效性
 - 表格格式完整性
-- 接口一致性（§6 vs §10）
+- 接口一致性（§4 vs §13）
 - 术语一致性
 
 ### 4. 编号段分配
