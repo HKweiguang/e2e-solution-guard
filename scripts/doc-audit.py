@@ -347,7 +347,11 @@ class DocumentAuditor:
                 )
 
     def check_upstream_references(self):
-        """检查 upstream-document 表格是否存在，且引用的文档路径可解析。"""
+        """检查 upstream-document 表格是否存在，且引用的文档路径可解析。
+        
+        豁免：若 upstream-document 区域包含"示例""常见依赖""不要机械套用"等字样，
+        视为 Skill 模板/写作指南，跳过 upstream 检查。
+        """
         # 提取文件头部：从开头到第一个 ## 级 heading（不含 upstream 自身所在区域）
         header_text = ""
         in_header = True
@@ -370,6 +374,11 @@ class DocumentAuditor:
                 "缺少 upstream-document 声明",
             )
             return
+        
+        # 豁免：Skill 模板/写作指南中的 upstream-document 仅为示例
+        if any(marker in header_text for marker in ["示例", "常见依赖", "不要机械套用"]):
+            return
+        
         # 提取表格中的文档名
         table = self._extract_table_after(r"上游文档")
         if not table or len(table) < 2:
@@ -871,21 +880,25 @@ class GlobalPRDAuditor(DocumentAuditor):
         self.check_error_code_format()
 
         # 检查是否出现"后续版本"等延迟占位（里程碑表除外）
+        # 豁免：Skill 模板/写作指南中常出现这些词作为示例或说明
         body = self.raw_text
-        # 去掉 §3 版本里程碑章节
-        milestone_start = body.find("§3")
-        milestone_end = body.find("§4")
-        if milestone_start != -1 and milestone_end != -1:
-            body = body[:milestone_start] + body[milestone_end:]
-        prohibited = ["后续版本", "v1.x+", "后续迭代", "后续补充"]
-        for word in prohibited:
-            if word in body:
-                self.add_issue(
-                    "placeholder_detected",
-                    "blocking",
-                    "顶层定义",
-                    f"正文出现延迟实现占位词: '{word}'（里程碑表除外）",
-                )
+        if "Skill 模板" in body or "元说明" in body or "AI 指令" in body:
+            pass  # 跳过模板文件的延迟占位检查
+        else:
+            # 去掉 §3 版本里程碑章节
+            milestone_start = body.find("§3")
+            milestone_end = body.find("§4")
+            if milestone_start != -1 and milestone_end != -1:
+                body = body[:milestone_start] + body[milestone_end:]
+            prohibited = ["后续版本", "v1.x+", "后续迭代", "后续补充"]
+            for word in prohibited:
+                if word in body:
+                    self.add_issue(
+                        "placeholder_detected",
+                        "blocking",
+                        "顶层定义",
+                        f"正文出现延迟实现占位词: '{word}'（里程碑表除外）",
+                    )
 
 
 class GlobalTechAuditor(DocumentAuditor):
