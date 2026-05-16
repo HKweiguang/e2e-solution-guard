@@ -532,8 +532,7 @@ class PRDAuditor(DocumentAuditor):
             if row and not re.match(r"^:?-+:?$", row[0])
         )
 
-        self.check_number_continuity("F", "§3 功能需求", sec3_first_col)
-        self.check_duplicate_numbers("F", "§3 功能需求", sec3_first_col)
+        # 功能编号前缀由项目 PRD-顶层定义编码规则决定，不做硬编码连续性检查
 
         # 表格格式
         self.check_table_format()
@@ -571,16 +570,21 @@ class PRDAuditor(DocumentAuditor):
                 )
 
         # §8 每条验收标准对应 §3 的一个功能点
-        ac_items = re.findall(r"§8\.(\d+)", sec8_text)
-        for num in ac_items:
-            # 提取对应行，检查是否包含 §3 中的任意功能标识
+        # 验收标准编号格式由项目自定义（如 ACC-001），从表格第一列提取
+        sec8_table = self._extract_table_after(r"§8\s+验收标准")
+        ac_ids = []
+        if sec8_table:
+            for row in sec8_table:
+                if row and not re.match(r"^:?-+:?$", row[0]):
+                    ac_ids.append(row[0].strip())
+        for ac_id in ac_ids:
             has_ref = any(fid in sec8_text for fid in feature_ids) if feature_ids else False
             if not has_ref and feature_ids:
                 self.add_issue(
                     "acceptance_no_feature",
                     "blocking",
                     "§8 验收标准",
-                    f"验收项 §8.{num} 未关联任何功能点",
+                    f"验收项 {ac_id} 未关联任何功能点",
                 )
 
 
@@ -604,11 +608,13 @@ class InteractionAuditor(DocumentAuditor):
             )
 
         # 提取所有页面章节文本（一级标题匹配页面编号格式）
+        # 页面编号格式由项目编码规则决定，支持任意前缀（如 PAGE-TICKET-001）
         page_sections: List[str] = []
         current_section = ""
         page_titles: List[str] = []
         for n in self.nodes:
-            if n.type == "heading" and re.search(r"§\d+\s+P\d+", n.content):
+            # 匹配 §数字 后面跟着页面编号（支持任意前缀+数字格式）
+            if n.type == "heading" and re.search(r"§\d+\s+[A-Z]+-[A-Z]+-\d+", n.content):
                 if current_section:
                     page_sections.append(current_section)
                 current_section = n.content + "\n"
@@ -623,7 +629,7 @@ class InteractionAuditor(DocumentAuditor):
             for sub in ["页面结构", "组件交互", "状态机", "页面流程", "异常处理", "与 PRD 对应"]:
                 if sub not in sec:
                     # 提取页面编号用于定位
-                    pm = re.search(r"(P\d+)", sec)
+                    pm = re.search(r"([A-Z]+-[A-Z]+-\d+)", sec)
                     page_id = pm.group(1) if pm else "未知页面"
                     self.add_issue(
                         "missing_subsection",
@@ -632,10 +638,7 @@ class InteractionAuditor(DocumentAuditor):
                         f"页面 {page_id} 缺少子节: {sub}",
                     )
 
-        # 只在页面标题中检查编号重复/连续，避免"与 PRD 对应"子节中的引用导致误报
-        title_text = "\n".join(page_titles)
-        self.check_number_continuity("P", "页面编号", title_text)
-        self.check_duplicate_numbers("P", "页面编号", title_text)
+        # 页面编号格式由项目自定义，不硬编码连续性检查
         self.check_table_format()
         self.check_term_consistency()
         self.check_upstream_references()
@@ -646,59 +649,61 @@ class TechAuditor(DocumentAuditor):
 
     def run(self):
         self.check_required_sections([
-            "关联文档", "服务概述", "技术实现要点",
-            "数据模型", "接口设计", "接口清单",
+            "技术决策", "依赖关系", "数据模型", "接口设计",
+            "状态机设计", "核心流程", "异常处理", "性能与扩展性",
+            "高可用设计", "安全设计", "监控与日志", "灰度与回滚",
+            "接口清单", "风险评估",
         ])
 
-        sec5_text = self._section_text(r"§5\s+数据模型")
-        sec6_text = self._section_text(r"§6\s+接口设计")
-        sec8_text = self._section_text(r"§8\s+异常处理")
-        sec10_text = self._section_text(r"§10\s+接口清单")
+        sec3_text = self._section_text(r"§3\s+数据模型")
+        sec4_text = self._section_text(r"§4\s+接口设计")
+        sec7_text = self._section_text(r"§7\s+异常处理")
+        sec13_text = self._section_text(r"§13\s+接口清单")
 
         self.check_table_format()
         self.check_term_consistency()
         self.check_upstream_references()
-        self.check_interface_consistency(sec6_text, sec10_text)
+        self.check_interface_consistency(sec4_text, sec13_text)
         self.check_error_code_format()
 
-        # §8 每个异常场景对应 PRD §7 的一个错误码或模块特定异常
-        ex_codes = re.findall(r"`([^`\s]+)`", sec8_text)
+        # §7 每个异常场景对应 PRD 错误处理或模块特定异常
+        ex_codes = re.findall(r"`([^`\s]+)`", sec7_text)
         for code in set(ex_codes):
-            # 检查是否也在 §6 接口设计中出现
-            if code not in sec6_text:
+            # 检查是否也在 §4 接口设计中出现
+            if code not in sec4_text:
                 self.add_hint(
                     "exception_not_in_api",
                     "warning",
-                    "§8 异常处理",
-                    f"异常 {code} 在 §6 接口设计中未作为错误码返回",
+                    "§7 异常处理",
+                    f"异常 {code} 在 §4 接口设计中未作为错误码返回",
                 )
 
-    def check_interface_consistency(self, sec6_text: str, sec10_text: str):
-        """检查 §6 接口设计与 §10 接口清单是否一一对应"""
-        # §6 中接口通常在反引号内，如 `POST /api/v1/orders`
-        pattern_6 = r"`(GET|POST|PUT|DELETE|PATCH)\s+(/[\w/{}-]+)`"
-        paths_6 = set(re.findall(pattern_6, sec6_text))
+    def check_interface_consistency(self, sec4_text: str, sec13_text: str):
+        """检查 §4 接口设计与 §13 接口清单是否一一对应"""
+        # §4 中接口通常在反引号内，如 `POST /api/v1/orders`
+        pattern_4 = r"`(GET|POST|PUT|DELETE|PATCH)\s+(/[\w/{}-]+)`"
+        paths_4 = set(re.findall(pattern_4, sec4_text))
 
-        # §10 中接口在表格单元格内，格式如 `| 提交订单 | POST | /api/v1/orders | ... |`
+        # §13 中接口在表格单元格内，格式如 `| 提交订单 | POST | /api/v1/orders | ... |`
         # 需要匹配方法列和路径列（中间有 | 分隔）
-        pattern_10 = r"\|\s*(GET|POST|PUT|DELETE|PATCH)\s*\|\s*(/[\w/{}-]+)\s*\|"
-        paths_10 = set(re.findall(pattern_10, sec10_text))
+        pattern_13 = r"\|\s*(GET|POST|PUT|DELETE|PATCH)\s*\|\s*(/[\w/{}-]+)\s*\|"
+        paths_13 = set(re.findall(pattern_13, sec13_text))
 
-        missing_in_10 = paths_6 - paths_10
-        missing_in_6 = paths_10 - paths_6
-        for method, path in missing_in_10:
+        missing_in_13 = paths_4 - paths_13
+        missing_in_4 = paths_13 - paths_4
+        for method, path in missing_in_13:
             self.add_issue(
                 "interface_mismatch",
                 "blocking",
-                "§10 接口清单",
-                f"§6 中存在接口 {method} {path}，但 §10 接口清单中缺失",
+                "§13 接口清单",
+                f"§4 中存在接口 {method} {path}，但 §13 接口清单中缺失",
             )
-        for method, path in missing_in_6:
+        for method, path in missing_in_4:
             self.add_issue(
                 "interface_mismatch",
                 "blocking",
-                "§6 接口设计",
-                f"§10 接口清单中存在 {method} {path}，但 §6 中无详细定义",
+                "§4 接口设计",
+                f"§13 接口清单中存在 {method} {path}，但 §4 中无详细定义",
             )
 
 
@@ -707,43 +712,42 @@ class UIAuditor(DocumentAuditor):
 
     def run(self):
         self.check_required_sections([
-            "顶层定义引用", "组件规范", "页面设计",
+            "设计系统引用", "页面布局", "组件样式", "状态展示", "与交互设计对应",
         ])
 
-        # 只从 §4 页面设计的子章节标题中提取页面编号，避免正文中引用导致误报
+        # UI 设计稿以页面为主线组织，页面编号在 §3.2 页面布局的子节中
+        # 从所有三级标题中提取页面编号（支持任意前缀+数字格式）
         page_headings = []
-        in_sec4 = False
         for n in self.nodes:
-            if n.type == "heading" and re.search(r"§4\s+页面设计", n.content):
-                in_sec4 = True
-                continue
-            if in_sec4 and n.type == "heading":
-                if n.meta.get("level", 1) <= 2:
-                    break
-                page_headings.append(n.content)
+            if n.type == "heading" and n.meta.get("level", 1) == 3:
+                # 三级标题通常是页面子节（如 ### 3.2.1 页面布局）
+                if re.search(r"[A-Z]+-[A-Z]+-\d+", n.content):
+                    page_headings.append(n.content)
         title_text = "\n".join(page_headings)
 
-        self.check_number_continuity("P", "页面编号", title_text)
-        self.check_duplicate_numbers("P", "页面编号", title_text)
+        # 页面编号格式由项目自定义，不硬编码连续性检查
         self.check_table_format()
         self.check_term_consistency()
         self.check_upstream_references()
 
-        # §4 每个页面必须有默认/空/错误三种状态
-        sec4_text = self._section_text(r"§4\s+页面设计")
-        page_blocks = re.split(r"\n#{2,4}\s+", sec4_text)
+        # 每个页面必须有默认/空/错误三种状态（在 §3.4 状态展示中检查）
+        sec3_4_text = self._section_text(r"§3\.4\s+状态展示")
+        if not sec3_4_text:
+            # 兼容旧版结构
+            sec3_4_text = self._section_text(r"§3\.4\s+状态")
+        page_blocks = re.split(r"\n#{2,4}\s+", sec3_4_text)
         for block in page_blocks:
             if not block.strip():
                 continue
             states = ["默认状态", "空状态", "错误状态"]
             missing = [s for s in states if s not in block]
             if missing:
-                pm = re.search(r"(P\d+)", block)
+                pm = re.search(r"([A-Z]+-[A-Z]+-\d+)", block)
                 page_id = pm.group(1) if pm else "未知页面"
                 self.add_issue(
                     "missing_ui_state",
                     "blocking",
-                    f"§4 {page_id}",
+                    f"§3.4 {page_id}",
                     f"页面 {page_id} 缺少状态描述: {', '.join(missing)}",
                 )
 
@@ -753,29 +757,36 @@ class TestAuditor(DocumentAuditor):
 
     def run(self):
         self.check_required_sections([
-            "功能测试用例", "异常测试用例", "覆盖检查报告",
+            "功能测试用例", "异常测试用例", "性能测试",
+            "安全测试", "兼容性测试", "覆盖检查报告", "回归测试策略",
         ])
 
         sec1_text = self._section_text(r"§1\s+功能测试用例")
         sec2_text = self._section_text(r"§2\s+异常测试用例")
 
         # 测试用例编号格式完全由项目自定义，此处不做硬编码格式检查
-        # 如需检查连续性，可通过 --delta 参数指定具体测试用例范围
         self.check_table_format()
         self.check_term_consistency()
         self.check_upstream_references()
 
-        # §3 覆盖检查报告中每个验收标准在 §1/§2 中有对应用例
-        sec3_text = self._section_text(r"§3\s+覆盖检查报告")
+        # §6 覆盖检查报告中每个验收标准在 §1/§2 中有对应用例
+        sec6_text = self._section_text(r"§6\s+覆盖检查报告")
         all_cases = sec1_text + sec2_text
-        ac_refs = re.findall(r"§8\.(\d+)", sec3_text)
-        for ref in set(ac_refs):
-            if f"§8.{ref}" not in all_cases:
+        # 验收标准编号格式由项目自定义（如 ACC-001），不硬编码为 §8.x
+        # 从覆盖检查报告表格中提取验收标准编号
+        sec6_table = self._extract_table_after(r"§6\s+覆盖检查报告")
+        ac_ids = []
+        if sec6_table:
+            for row in sec6_table:
+                if row and not re.match(r"^:?-+:?$", row[0]):
+                    ac_ids.append(row[0].strip())
+        for ac_id in ac_ids:
+            if ac_id not in all_cases:
                 self.add_issue(
                     "uncovered_acceptance",
                     "blocking",
-                    "§3 覆盖检查报告",
-                    f"验收标准 §8.{ref} 在 §1/§2 中无对应测试用例",
+                    "§6 覆盖检查报告",
+                    f"验收标准 {ac_id} 在 §1/§2 中无对应测试用例",
                 )
 
     def check_number_continuity(self, prefix: str, location: str, text: str | None = None):
