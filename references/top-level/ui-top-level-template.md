@@ -180,7 +180,7 @@
 | 色彩角色 | Token 名 | 默认映射 | 用途 |
 |---------|---------|---------|------|
 | 主色 | `primary` | `primary-500` | 主按钮、链接、关键图标 |
-| 主色-文字 | `on-primary` | `neutral-white` | 主色背景上的文字（与primary形成对比）|
+| 主色-文字 | `on-primary` | `neutral-0` | 主色背景上的文字（与primary形成对比）|
 | 主色-容器 | `primary-container` | `primary-100` | 轻量主色背景（标签、徽章）|
 | 容器-文字 | `on-primary-container` | `primary-700` | 主色容器上的文字 |
 | 表面色 | `surface` | `neutral-50` | 卡片、弹窗背景 |
@@ -188,9 +188,10 @@
 | 文字-主 | `text-primary` | `neutral-900` | 标题、正文 |
 | 文字-次 | `text-secondary` | `neutral-600` | 辅助说明、描述 |
 | 文字-禁用 | `text-disabled` | `neutral-400` | 禁用态文字 |
-| 边框 | `border-default` | `neutral-200` | 输入框、分割线 |
+| 边框 | `border-default` | `neutral-200` | 输入框、卡片边框 |
+| 边框-轻 | `border-light` | `neutral-100` | 分割线、次要分隔 |
 | 错误 | `error` | `semantic-red-500` | 错误提示、校验失败 |
-| 错误-文字 | `on-error` | `neutral-white` | 错误色背景上的文字 |
+| 错误-文字 | `on-error` | `neutral-0` | 错误色背景上的文字 |
 
 > 项目根据实际需求增减色彩角色，但至少覆盖：主色/表面/背景/文字（3级）/边框/错误。
 
@@ -507,7 +508,7 @@
 |-------|------|-------------|------|
 | `motion-instant` | 0ms | — | 无过渡（状态切换）|
 | `motion-fast` | 100ms | 快 | 按钮状态切换、微交互 |
-| `motion-normal` | 250ms | 标准 | 弹窗出现/消失、页面切换 |
+| `motion-normal` | 200ms | 标准 | 弹窗出现/消失、页面切换 |
 | `motion-slow` | 400ms | 慢 | 复杂展开、引导动画 |
 
 > 时长值由项目根据品牌调性定义，需与交互-顶层定义的动效分级对应。

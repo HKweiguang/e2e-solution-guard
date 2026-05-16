@@ -514,7 +514,7 @@ class PRDAuditor(DocumentAuditor):
         # 结构一致性
         self.check_required_sections([
             "背景与目标", "用户与场景", "功能需求",
-            "非功能需求", "数据模型", "业务规则", "错误处理", "验收标准", "依赖与范围",
+            "非功能需求", "数据模型", "业务规则", "错误处理", "验收标准", "依赖与范围", "附件",
         ])
 
         # 提取 §3 功能需求文本（用于后续引用检查）
@@ -572,13 +572,15 @@ class PRDAuditor(DocumentAuditor):
         # §8 每条验收标准对应 §3 的一个功能点
         # 验收标准编号格式由项目自定义（如 ACC-001），从表格第一列提取
         sec8_table = self._extract_table_after(r"§8\s+验收标准")
-        ac_ids = []
+        ac_rows = []
         if sec8_table:
             for row in sec8_table:
                 if row and not re.match(r"^:?-+:?$", row[0]):
-                    ac_ids.append(row[0].strip())
-        for ac_id in ac_ids:
-            has_ref = any(fid in sec8_text for fid in feature_ids) if feature_ids else False
+                    ac_rows.append(row)
+        for row in ac_rows:
+            ac_id = row[0].strip()
+            ac_desc = " | ".join(row[1:]) if len(row) > 1 else ""
+            has_ref = any(fid in ac_desc for fid in feature_ids) if feature_ids else False
             if not has_ref and feature_ids:
                 self.add_issue(
                     "acceptance_no_feature",
@@ -715,12 +717,11 @@ class UIAuditor(DocumentAuditor):
             "设计系统引用", "页面布局", "组件样式", "状态展示", "与交互设计对应",
         ])
 
-        # UI 设计稿以页面为主线组织，页面编号在 §3.2 页面布局的子节中
-        # 从所有三级标题中提取页面编号（支持任意前缀+数字格式）
+        # UI 设计稿以页面为主线组织，页面编号在页面布局的子节中
+        # 从所有一级标题中提取页面编号（支持任意前缀+数字格式）
         page_headings = []
         for n in self.nodes:
-            if n.type == "heading" and n.meta.get("level", 1) == 3:
-                # 三级标题通常是页面子节（如 ### 3.2.1 页面布局）
+            if n.type == "heading" and n.meta.get("level", 1) == 1:
                 if re.search(r"[A-Z]+-[A-Z]+-\d+", n.content):
                     page_headings.append(n.content)
         title_text = "\n".join(page_headings)
@@ -730,24 +731,55 @@ class UIAuditor(DocumentAuditor):
         self.check_term_consistency()
         self.check_upstream_references()
 
-        # 每个页面必须有默认/空/错误三种状态（在 §3.4 状态展示中检查）
-        sec3_4_text = self._section_text(r"§3\.4\s+状态展示")
-        if not sec3_4_text:
-            # 兼容旧版结构
-            sec3_4_text = self._section_text(r"§3\.4\s+状态")
-        page_blocks = re.split(r"\n#{2,4}\s+", sec3_4_text)
-        for block in page_blocks:
-            if not block.strip():
+        # 每个页面必须有默认/空/错误三种状态
+        # 提取所有页面章节（一级标题匹配页面编号格式）
+        page_nodes: List[List[MarkdownNode]] = []
+        current_page: List[MarkdownNode] = []
+        for n in self.nodes:
+            if n.type == "heading" and re.search(r"§\d+\s+[A-Z]+-[A-Z]+-\d+", n.content):
+                if current_page:
+                    page_nodes.append(current_page)
+                current_page = [n]
+            elif current_page:
+                current_page.append(n)
+        if current_page:
+            page_nodes.append(current_page)
+
+        for page in page_nodes:
+            page_title = page[0].content
+            pm = re.search(r"([A-Z]+-[A-Z]+-\d+)", page_title)
+            page_id = pm.group(1) if pm else "未知页面"
+
+            # 在页面节点中查找 "状态展示" heading
+            state_text = ""
+            in_state_section = False
+            state_heading_level = 6
+            for n in page:
+                if n.type == "heading" and "状态展示" in n.content:
+                    in_state_section = True
+                    state_heading_level = n.meta.get("level", 6)
+                    continue
+                if in_state_section:
+                    if n.type == "heading" and n.meta.get("level", 1) <= state_heading_level:
+                        break
+                    state_text += n.content + "\n"
+
+            if not state_text:
+                self.add_issue(
+                    "missing_ui_state_section",
+                    "blocking",
+                    f"{page_id} 状态展示",
+                    f"页面 {page_id} 缺少状态展示子节",
+                )
                 continue
+
             states = ["默认状态", "空状态", "错误状态"]
-            missing = [s for s in states if s not in block]
+            missing = [s for s in states if s not in state_text]
             if missing:
-                pm = re.search(r"([A-Z]+-[A-Z]+-\d+)", block)
-                page_id = pm.group(1) if pm else "未知页面"
                 self.add_issue(
                     "missing_ui_state",
                     "blocking",
-                    f"§3.4 {page_id}",
+                    f"{page_id} 状态展示",
                     f"页面 {page_id} 缺少状态描述: {', '.join(missing)}",
                 )
 
@@ -828,7 +860,7 @@ class GlobalPRDAuditor(DocumentAuditor):
     def run(self):
         self.check_required_sections([
             "产品概述", "功能范围", "版本里程碑",
-            "术语表", "状态值", "错误码规则",
+            "术语表", "状态值", "编码规则",
         ])
         self.check_table_format()
         self.check_error_code_format()

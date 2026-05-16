@@ -114,7 +114,7 @@ python /path/to/e2e-solution-guard/scripts/doc-audit.py <doc> --type <type>
 
 ### 执行步骤
 
-1. **定位检查清单**：根据当前文档类型（prd/interaction/ui/tech/test），读取 `references/steps/{type}-step.md` 的检查清单章节（prd/interaction/ui 类型为 §5，tech/test 类型为 §6），提取所有标记为 `[模型]` 的检查项
+1. **定位检查清单**：根据当前文档类型（prd/interaction/ui/tech/test），读取 `references/steps/{type}-step.md` 的检查清单章节（均为 §6），提取所有标记为 `[模型]` 的检查项
 2. **加载必要上下文**：除当前文档外，根据 `[模型]` 项的描述加载需要比对的上游或下游文档（如 PRD、交互设计、技术方案等）
 3. **逐项分析并输出**：针对每个 `[模型]` 检查项，在当前文档与关联文档之间进行比对分析，输出结构化结果：
 
