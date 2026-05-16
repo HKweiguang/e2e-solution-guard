@@ -613,14 +613,12 @@ class InteractionAuditor(DocumentAuditor):
         # 页面编号格式由项目编码规则决定，支持任意前缀（如 PAGE-TICKET-001）
         page_sections: List[str] = []
         current_section = ""
-        page_titles: List[str] = []
         for n in self.nodes:
             # 匹配 §数字 后面跟着页面编号（支持任意前缀+数字格式）
             if n.type == "heading" and re.search(r"§\d+\s+[A-Z]+-[A-Z]+-\d+", n.content):
                 if current_section:
                     page_sections.append(current_section)
                 current_section = n.content + "\n"
-                page_titles.append(n.content)
             elif current_section:
                 current_section += n.content + "\n"
         if current_section:
@@ -699,7 +697,7 @@ class TechAuditor(DocumentAuditor):
 
         # §13 中接口在表格单元格内，格式如 `| 提交订单 | POST | /api/v1/orders | ... |`
         # 需要匹配方法列和路径列（中间有 | 分隔），路径可能被反引号包裹
-        pattern_13 = r"\|\s*(GET|POST|PUT|DELETE|PATCH)\s*\|\s*`?(/[\w/{}-]+)`?\s*\|"
+        pattern_13 = r"\|\s*(GET|POST|PUT|DELETE|PATCH)\s*\|\s*`?(/[\w/{}:.-]+)`?\s*\|"
         paths_13 = set(re.findall(pattern_13, sec13_text))
 
         missing_in_13 = paths_4 - paths_13
@@ -829,39 +827,6 @@ class TestAuditor(DocumentAuditor):
                     f"验收标准 {ac_id} 在 §1/§2 中无对应测试用例",
                 )
 
-    def check_number_continuity(self, prefix: str, location: str, text: str | None = None):
-        """测试用例编号连续性检查（支持任意位数）"""
-        text = self.filter_delta_text(text or self.raw_text)
-        # 提取 prefix + 任意位数字
-        numbers = sorted({int(m) for m in re.findall(rf"{prefix}(\d+)", text)})
-        if not numbers:
-            return
-        for i in range(len(numbers) - 1):
-            if numbers[i + 1] - numbers[i] > 1:
-                self.add_issue(
-                    "number_gap",
-                    "blocking",
-                    location,
-                    f"{prefix} 编号不连续，缺少 {prefix}{numbers[i]+1}"
-                    f"（已有 {prefix}{numbers[i]}, {prefix}{numbers[i+1]}）",
-                )
-
-    def check_duplicate_numbers(self, prefix: str, location: str, text: str | None = None):
-        """测试用例编号重复检查（支持任意位数）"""
-        text = self.filter_delta_text(text or self.raw_text)
-        numbers = re.findall(rf"{prefix}(\d+)", text)
-        seen: set[str] = set()
-        for n in numbers:
-            if n in seen:
-                self.add_issue(
-                    "duplicate_number",
-                    "blocking",
-                    location,
-                    f"{prefix}{n} 出现重复",
-                )
-            seen.add(n)
-
-
 class GlobalPRDAuditor(DocumentAuditor):
     """PRD 顶层定义审计器"""
 
@@ -951,6 +916,73 @@ def scan_downstream(doc_path: Path, docs_dir: Path) -> List[dict]:
     return downstream
 
 
+class GlobalInteractionAuditor(DocumentAuditor):
+    """交互顶层定义审计器"""
+
+    def run(self):
+        self.check_required_sections([
+            "交互令牌", "跨端通用规则", "交互状态规范",
+            "交互反馈规范", "交互规范", "无障碍设计",
+        ])
+        self.check_table_format()
+
+        # 检查 §3 交互状态规范包含 6 基础 + 4 异步状态
+        sec3_text = self._section_text(r"§?3\s+交互状态|交互状态规范")
+        base_states = ["默认态", "悬停态", "按下态", "聚焦态", "禁用态", "加载态"]
+        async_states = ["空状态", "错误状态", "成功状态", "骨架态"]
+        missing_base = [s for s in base_states if s not in sec3_text]
+        missing_async = [s for s in async_states if s not in sec3_text]
+        if missing_base:
+            self.add_issue(
+                "interaction_state_incomplete",
+                "blocking",
+                "§3 交互状态规范",
+                f"缺少基础交互状态定义: {', '.join(missing_base)}",
+            )
+        if missing_async:
+            self.add_issue(
+                "interaction_state_incomplete",
+                "blocking",
+                "§3 交互状态规范",
+                f"缺少异步/边界状态定义: {', '.join(missing_async)}",
+            )
+
+        # 检查 §4 交互反馈规范包含四类反馈时效红线
+        sec4_text = self._section_text(r"§?4\s+交互反馈|交互反馈规范")
+        feedback_types = ["点击响应", "弹窗出现", "页面切换", "异步提交"]
+        missing_fb = [f for f in feedback_types if f not in sec4_text]
+        if missing_fb:
+            self.add_issue(
+                "feedback_redline_missing",
+                "warning",
+                "§4 交互反馈规范",
+                f"建议包含反馈时效红线: {', '.join(missing_fb)}",
+            )
+
+
+class GlobalUIAuditor(DocumentAuditor):
+    """UI 顶层定义审计器"""
+
+    def run(self):
+        self.check_required_sections([
+            "设计原则", "设计令牌体系", "色彩系统",
+            "字体系统", "间距与布局系统", "形状系统",
+            "阴影与海拔", "动效与过渡", "图标规范",
+            "主题与暗黑模式", "组件库",
+        ])
+        self.check_table_format()
+
+        # 检查 §11 组件库包含全局状态规范
+        sec11_text = self._section_text(r"§?11\s+组件库|组件库")
+        if "全局状态规范" not in sec11_text:
+            self.add_issue(
+                "ui_component_state_missing",
+                "blocking",
+                "§11 组件库",
+                "组件库章节未声明全局状态规范",
+            )
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 5. 入口
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -963,6 +995,8 @@ AUDITOR_MAP = {
     "test": TestAuditor,
     "global-prd": GlobalPRDAuditor,
     "global-tech": GlobalTechAuditor,
+    "global-interaction": GlobalInteractionAuditor,
+    "global-ui": GlobalUIAuditor,
 }
 
 

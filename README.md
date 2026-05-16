@@ -71,12 +71,6 @@ e2e-solution-guard/
 │   │   ├── interaction-top-level-template.md # 交互顶层定义模板
 │   │   ├── ui-top-level-template.md  # UI 顶层定义模板
 │   │   └── tech-top-level-template.md # 技术顶层定义模板
-│   ├── examples/                     # 示例文档
-│   │   ├── prd-example.md
-│   │   ├── tech-example.md
-│   │   ├── upstream-change-example.md    # 回改流程示例
-│   │   ├── conflict-resolution-example.md # 冲突处理示例
-│   │   └── ...
 │   ├── rules/                        # 一致性硬规则
 │   │   └── consistency-rules.md      # 编号连续性、双向引用、术语一致性
 │   └── workflow/                     # 执行流程
@@ -128,7 +122,7 @@ python scripts/doc-audit.py PRD.md --type prd --scan-downstream ./docs/
 - 编号连续性 & 重复检测
 - upstream-document 引用有效性
 - 表格格式完整性
-- 接口一致性（§4 vs §13）
+- 接口一致性（技术方案文档：§4 接口设计 vs §13 接口清单）
 - 术语一致性
 
 ### 4. 编号段分配
