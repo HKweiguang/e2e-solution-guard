@@ -762,7 +762,12 @@ class UIAuditor(DocumentAuditor):
                 if in_state_section:
                     if n.type == "heading" and n.meta.get("level", 1) <= state_heading_level:
                         break
-                    state_text += n.content + "\n"
+                    if n.type == "table":
+                        rows = n.meta.get("rows", [])
+                        for row in rows:
+                            state_text += " | ".join(row) + "\n"
+                    else:
+                        state_text += n.content + "\n"
 
             if not state_text:
                 self.add_issue(
@@ -773,7 +778,7 @@ class UIAuditor(DocumentAuditor):
                 )
                 continue
 
-            states = ["默认状态", "空状态", "错误状态"]
+            states = ["默认态", "空状态", "错误状态"]
             missing = [s for s in states if s not in state_text]
             if missing:
                 self.add_issue(
