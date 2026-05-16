@@ -4,13 +4,13 @@ doc-audit.py — 文档一致性审计工具（标准库 only）
 
 用法:
   # 全量审计
-  python scripts/doc-audit.py <doc_path> --type prd --upstream upstream1.md upstream2.md
+  python3 scripts/doc-audit.py <doc_path> --type prd --upstream upstream1.md upstream2.md
 
   # 增量审计（仅检查变更的功能点/页面/章节）
-  python scripts/doc-audit.py <doc_path> --type prd --upstream up1.md --delta <标识符列表>
+  python3 scripts/doc-audit.py <doc_path> --type prd --upstream up1.md --delta <标识符列表>
 
   # 扫描下游影响（输出受影响的下游文档清单）
-  python scripts/doc-audit.py <doc_path> --type prd --scan-downstream ./docs/
+  python3 scripts/doc-audit.py <doc_path> --type prd --scan-downstream ./docs/
 
 输出: 结构化 JSON，包含 mechanical_issues / semantic_hints / summary
 """
@@ -526,7 +526,7 @@ class PRDAuditor(DocumentAuditor):
 
         # 提取 §3 功能需求文本（用于后续引用检查）
         sec3_text = self._section_text(r"§3\s+功能需求")
-        sec5_text = self._section_text(r"§5\s+数据模型")
+        # sec5 数据模型通常不包含功能编号引用，已排除在 downstream_text 外
         sec6_text = self._section_text(r"§6\s+业务规则")
         sec7_text = self._section_text(r"§7\s+错误处理")
         sec8_text = self._section_text(r"§8\s+验收标准")
@@ -674,7 +674,8 @@ class TechAuditor(DocumentAuditor):
         self.check_term_consistency()
         self.check_upstream_references()
         self.check_interface_consistency(sec4_text, sec13_text)
-        self.check_error_code_format()
+        # check_error_code_format 需要传入 error_prefixes 参数，当前无项目级配置，暂不调用
+        # self.check_error_code_format(error_prefixes=[...])
 
         # §7 每个异常场景对应 PRD 错误处理或模块特定异常
         # 提取符合错误码格式的反引号内容（如 ERR-001、TICKET-001）
@@ -836,7 +837,8 @@ class GlobalPRDAuditor(DocumentAuditor):
             "术语表", "状态值", "编码规则", "待决策问题",
         ])
         self.check_table_format()
-        self.check_error_code_format()
+        # check_error_code_format 需要传入 error_prefixes 参数，当前无项目级配置，暂不调用
+        # self.check_error_code_format(error_prefixes=[...])
 
         # 检查是否出现"后续版本"等延迟占位（里程碑表除外）
         # 豁免：Skill 模板/写作指南中常出现这些词作为示例或说明
@@ -902,17 +904,22 @@ def scan_downstream(doc_path: Path, docs_dir: Path) -> List[dict]:
         except Exception:
             continue
         # 检查 upstream-document 表格中是否出现 target_name
-        if target_name in text and "上游文档" in text:
-            # 提取引用范围（粗略）
+        if "上游文档" in text:
+            # 优先在 upstream-document 表格区域内搜索，避免短文件名在正文误匹配
+            upstream_match = re.search(
+                r"上游文档.*?(?=^#{1,3}\s|\Z)", text, re.MULTILINE | re.DOTALL
+            )
+            search_area = upstream_match.group(0) if upstream_match else text
             scope_match = re.search(
                 rf"\|\s*{re.escape(target_name)}\s*\|\s*[^|]+\|\s*([^|\n]+)\|",
-                text,
+                search_area,
             )
-            scope = scope_match.group(1).strip() if scope_match else "未知"
-            downstream.append({
-                "path": str(md_file.relative_to(docs_dir)),
-                "scope": scope,
-            })
+            if scope_match:
+                scope = scope_match.group(1).strip()
+                downstream.append({
+                    "path": str(md_file.relative_to(docs_dir)),
+                    "scope": scope,
+                })
     return downstream
 
 
@@ -927,7 +934,7 @@ class GlobalInteractionAuditor(DocumentAuditor):
         self.check_table_format()
 
         # 检查 §3 交互状态规范包含 6 基础 + 4 异步状态
-        sec3_text = self._section_text(r"§?3\s+交互状态|交互状态规范")
+        sec3_text = self._section_text(r"§?3\s+(?:交互状态|交互状态规范)")
         base_states = ["默认态", "悬停态", "按下态", "聚焦态", "禁用态", "加载态"]
         async_states = ["空状态", "错误状态", "成功状态", "骨架态"]
         missing_base = [s for s in base_states if s not in sec3_text]
@@ -948,7 +955,7 @@ class GlobalInteractionAuditor(DocumentAuditor):
             )
 
         # 检查 §4 交互反馈规范包含四类反馈时效红线
-        sec4_text = self._section_text(r"§?4\s+交互反馈|交互反馈规范")
+        sec4_text = self._section_text(r"§?4\s+(?:交互反馈|交互反馈规范)")
         feedback_types = ["点击响应", "弹窗出现", "页面切换", "异步提交"]
         missing_fb = [f for f in feedback_types if f not in sec4_text]
         if missing_fb:
@@ -973,7 +980,7 @@ class GlobalUIAuditor(DocumentAuditor):
         self.check_table_format()
 
         # 检查 §11 组件库包含全局状态规范
-        sec11_text = self._section_text(r"§?11\s+组件库|组件库")
+        sec11_text = self._section_text(r"§?11\s+(?:组件库)")
         if "全局状态规范" not in sec11_text:
             self.add_issue(
                 "ui_component_state_missing",
@@ -1073,8 +1080,9 @@ def main():
     # 如提供了术语表，追加术语一致性检查
     if args.terms:
         auditor.check_term_consistency(args.terms)
-    print(json.dumps(auditor.report(), ensure_ascii=False, indent=2))
-    sys.exit(0 if auditor.report()["passed"] else 1)
+    report = auditor.report()
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    sys.exit(0 if report["passed"] else 1)
 
 
 if __name__ == "__main__":

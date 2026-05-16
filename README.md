@@ -109,20 +109,20 @@ e2e-solution-guard/
 
 ```bash
 # 全量审计
-python scripts/doc-audit.py PRD.md --type prd
+python3 scripts/doc-audit.py PRD.md --type prd
 
 # 增量审计（只检查变更的功能点）
-python scripts/doc-audit.py PRD.md --type prd --delta F001,F003
+python3 scripts/doc-audit.py PRD.md --type prd --delta F001,F003
 
 # 扫描下游影响
-python scripts/doc-audit.py PRD.md --type prd --scan-downstream ./docs/
+python3 scripts/doc-audit.py PRD.md --type prd --scan-downstream ./docs/
 ```
 
 审计覆盖：
 - 编号连续性 & 重复检测
 - upstream-document 引用有效性
 - 表格格式完整性
-- 接口一致性（技术方案文档：§4 接口设计 vs §13 接口清单）
+- 接口一致性（技术方案文档：§4.4 接口设计 vs §4.13 接口清单）
 - 术语一致性
 
 ### 4. 编号段分配
