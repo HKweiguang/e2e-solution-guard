@@ -178,10 +178,7 @@ class DocumentAuditor:
         self.nodes = MarkdownParser(self.raw_text).parse()
         self.issues: List[AuditIssue] = []
         self.hints: List[AuditHint] = []
-        self.upstream_texts: Dict[str, str] = {}
-        for p in self.upstream_paths:
-            if p.exists():
-                self.upstream_texts[p.name] = p.read_text(encoding="utf-8")
+        # upstream_paths 用于存在性校验，文本内容暂未使用
 
     # ── 输出 ──
     def add_issue(self, check_type: str, severity: str, location: str, message: str):
@@ -376,7 +373,7 @@ class DocumentAuditor:
             return
         
         # 豁免：Skill 模板/写作指南中的 upstream-document 仅为示例
-        if any(marker in header_text for marker in ["示例", "常见依赖", "不要机械套用"]):
+        if "不要机械套用" in header_text:
             return
         
         # 提取表格中的文档名
@@ -399,7 +396,8 @@ class DocumentAuditor:
             # 简单启发式：如果看起来像文件名，检查同目录或给定 upstream_paths 中是否存在
             possible_names = [doc_name, doc_name + ".md"]
             found = any(
-                (self.doc_path.parent / name).exists() or name in [p.name for p in self.upstream_paths]
+                (self.doc_path.parent / name).exists()
+                or any(name == p.name and p.exists() for p in self.upstream_paths)
                 for name in possible_names
             )
             if not found and "/" in doc_name:
@@ -534,11 +532,12 @@ class PRDAuditor(DocumentAuditor):
         sec8_text = self._section_text(r"§8\s+验收标准")
 
         # 编号连续性 & 重复（只在分配表格中检查，避免后续章节引用导致误报）
-        # 提取 §3 表格第一列（跳过表头和分隔行）
+        # 提取 §3 表格第一列（跳过表头、分隔行和已知表头文本）
         sec3_table = self._extract_table_after(r"§3\s+功能需求")
         sec3_first_col = "\n".join(
             row[0] for row in (sec3_table or [])
             if row and not re.match(r"^:?-+:?$", row[0])
+            and row[0].strip() not in ("功能编号", "编号", "ID")
         )
 
         # 功能编号前缀由项目 PRD-顶层定义编码规则决定，不做硬编码连续性检查
@@ -552,8 +551,9 @@ class PRDAuditor(DocumentAuditor):
         # upstream
         self.check_upstream_references()
 
-        # 内部自洽性：§3 的功能标识在 §5/§6/§7/§8 中至少引用一次
-        downstream_text = sec5_text + sec6_text + sec7_text + sec8_text
+        # 内部自洽性：§3 的功能标识在 §6/§7/§8 中至少引用一次
+        # 注意：§5 数据模型通常不包含功能编号引用，纳入会产生噪音
+        downstream_text = sec6_text + sec7_text + sec8_text
         if sec3_first_col.strip():
             # 从功能需求第一列提取所有标识符（不假设格式）
             feature_ids = [line.strip() for line in sec3_first_col.splitlines() if line.strip() and not re.match(r"^:?-+:?$", line.strip())]
@@ -584,7 +584,8 @@ class PRDAuditor(DocumentAuditor):
         ac_rows = []
         if sec8_table:
             for row in sec8_table:
-                if row and not re.match(r"^:?-+:?$", row[0]):
+                if row and not re.match(r"^:?-+:?$", row[0]) \
+                        and row[0].strip() not in ("验收项编号", "验收标准编号", "编号", "ID"):
                     ac_rows.append(row)
         for row in ac_rows:
             ac_id = row[0].strip()
@@ -608,16 +609,6 @@ class InteractionAuditor(DocumentAuditor):
             "设计系统引用", "页面结构", "组件交互", "状态机", "页面流程", "异常处理", "与 PRD 对应",
         ])
 
-        # 检查文档级"设计系统引用"
-        doc_text = "\n".join([n.content for n in self.nodes])
-        if "设计系统引用" not in doc_text:
-            self.add_issue(
-                "missing_design_system_reference",
-                "blocking",
-                "交互设计文档",
-                "缺少文档级章节: 设计系统引用",
-            )
-
         # 提取所有页面章节文本（一级标题匹配页面编号格式）
         # 页面编号格式由项目编码规则决定，支持任意前缀（如 PAGE-TICKET-001）
         page_sections: List[str] = []
@@ -634,6 +625,16 @@ class InteractionAuditor(DocumentAuditor):
                 current_section += n.content + "\n"
         if current_section:
             page_sections.append(current_section)
+
+        if not page_sections and self.nodes:
+            # 豁免：Skill 模板/写作指南不包含真实页面章节
+            if "不要机械套用" not in self.raw_text:
+                self.add_issue(
+                    "missing_page_sections",
+                    "blocking",
+                    "交互设计文档",
+                    "未检测到任何符合格式的页面章节（如 §1 PAGE-TICKET-001），请确认页面编号格式",
+                )
 
         # 每个页面检查 6 个必含子节
         for sec in page_sections:
@@ -678,7 +679,8 @@ class TechAuditor(DocumentAuditor):
         self.check_error_code_format()
 
         # §7 每个异常场景对应 PRD 错误处理或模块特定异常
-        ex_codes = re.findall(r"`([^`\s]+)`", sec7_text)
+        # 提取符合错误码格式的反引号内容（如 ERR-001、TICKET-001）
+        ex_codes = re.findall(r"`([A-Z]+-[A-Z]+-\d+)`", sec7_text)
         for code in set(ex_codes):
             # 检查是否也在 §4 接口设计中出现
             if code not in sec4_text:
@@ -692,12 +694,12 @@ class TechAuditor(DocumentAuditor):
     def check_interface_consistency(self, sec4_text: str, sec13_text: str):
         """检查 §4 接口设计与 §13 接口清单是否一一对应"""
         # §4 中接口通常在反引号内，如 `POST /api/v1/orders`
-        pattern_4 = r"`(GET|POST|PUT|DELETE|PATCH)\s+(/[\w/{}-]+)`"
+        pattern_4 = r"`(GET|POST|PUT|DELETE|PATCH)\s+(/[\w/{}:.-]+)`"
         paths_4 = set(re.findall(pattern_4, sec4_text))
 
         # §13 中接口在表格单元格内，格式如 `| 提交订单 | POST | /api/v1/orders | ... |`
-        # 需要匹配方法列和路径列（中间有 | 分隔）
-        pattern_13 = r"\|\s*(GET|POST|PUT|DELETE|PATCH)\s*\|\s*(/[\w/{}-]+)\s*\|"
+        # 需要匹配方法列和路径列（中间有 | 分隔），路径可能被反引号包裹
+        pattern_13 = r"\|\s*(GET|POST|PUT|DELETE|PATCH)\s*\|\s*`?(/[\w/{}-]+)`?\s*\|"
         paths_13 = set(re.findall(pattern_13, sec13_text))
 
         missing_in_13 = paths_4 - paths_13
@@ -725,15 +727,6 @@ class UIAuditor(DocumentAuditor):
         self.check_required_sections([
             "设计系统引用", "页面布局", "组件样式", "状态展示", "与交互设计对应",
         ])
-
-        # UI 设计稿以页面为主线组织，页面编号在页面布局的子节中
-        # 从所有一级标题中提取页面编号（支持任意前缀+数字格式）
-        page_headings = []
-        for n in self.nodes:
-            if n.type == "heading" and n.meta.get("level", 1) == 1:
-                if re.search(r"[A-Z]+-[A-Z]+-\d+", n.content):
-                    page_headings.append(n.content)
-        title_text = "\n".join(page_headings)
 
         # 页面编号格式由项目自定义，不硬编码连续性检查
         self.check_table_format()
@@ -787,7 +780,7 @@ class UIAuditor(DocumentAuditor):
                 )
                 continue
 
-            states = ["默认态", "空状态", "错误状态"]
+            states = ["默认态", "悬停态", "按下态", "聚焦态", "禁用态", "加载态", "空状态", "错误状态", "成功状态", "骨架态"]
             missing = [s for s in states if s not in state_text]
             if missing:
                 self.add_issue(
@@ -819,12 +812,13 @@ class TestAuditor(DocumentAuditor):
         sec6_text = self._section_text(r"§6\s+覆盖检查报告")
         all_cases = sec1_text + sec2_text
         # 验收标准编号格式由项目自定义（如 ACC-001），不硬编码为 §8.x
-        # 从覆盖检查报告表格中提取验收标准编号
+        # 从覆盖检查报告表格中提取验收标准编号（跳过表头和分隔行）
         sec6_table = self._extract_table_after(r"§6\s+覆盖检查报告")
         ac_ids = []
         if sec6_table:
             for row in sec6_table:
-                if row and not re.match(r"^:?-+:?$", row[0]):
+                if row and not re.match(r"^:?-+:?$", row[0]) \
+                        and row[0].strip() not in ("验收标准编号", "编号", "ID"):
                     ac_ids.append(row[0].strip())
         for ac_id in ac_ids:
             if ac_id not in all_cases:
@@ -837,7 +831,7 @@ class TestAuditor(DocumentAuditor):
 
     def check_number_continuity(self, prefix: str, location: str, text: str | None = None):
         """测试用例编号连续性检查（支持任意位数）"""
-        text = text or self.raw_text
+        text = self.filter_delta_text(text or self.raw_text)
         # 提取 prefix + 任意位数字
         numbers = sorted({int(m) for m in re.findall(rf"{prefix}(\d+)", text)})
         if not numbers:
@@ -854,7 +848,7 @@ class TestAuditor(DocumentAuditor):
 
     def check_duplicate_numbers(self, prefix: str, location: str, text: str | None = None):
         """测试用例编号重复检查（支持任意位数）"""
-        text = text or self.raw_text
+        text = self.filter_delta_text(text or self.raw_text)
         numbers = re.findall(rf"{prefix}(\d+)", text)
         seen: set[str] = set()
         for n in numbers:
@@ -873,8 +867,8 @@ class GlobalPRDAuditor(DocumentAuditor):
 
     def run(self):
         self.check_required_sections([
-            "产品概述", "功能范围", "版本里程碑",
-            "术语表", "状态值", "编码规则",
+            "产品概述", "全局功能范围", "版本里程碑",
+            "术语表", "状态值", "编码规则", "待决策问题",
         ])
         self.check_table_format()
         self.check_error_code_format()
@@ -882,14 +876,15 @@ class GlobalPRDAuditor(DocumentAuditor):
         # 检查是否出现"后续版本"等延迟占位（里程碑表除外）
         # 豁免：Skill 模板/写作指南中常出现这些词作为示例或说明
         body = self.raw_text
-        if "Skill 模板" in body or "元说明" in body or "AI 指令" in body:
+        if "AI 指令：此文件是 Skill 内部使用的" in body or "顶层定义模板（meta）" in body:
             pass  # 跳过模板文件的延迟占位检查
         else:
             # 去掉 §3 版本里程碑章节
-            milestone_start = body.find("§3")
-            milestone_end = body.find("§4")
-            if milestone_start != -1 and milestone_end != -1:
-                body = body[:milestone_start] + body[milestone_end:]
+            # 使用正则精确定位 heading 行，避免正文引用误匹配
+            m_start = re.search(r"^##\s+§3\s+版本里程碑", body, re.MULTILINE)
+            m_end = re.search(r"^##\s+§4\s+", body, re.MULTILINE)
+            if m_start and m_end:
+                body = body[:m_start.start()] + body[m_end.start():]
             prohibited = ["后续版本", "v1.x+", "后续迭代", "后续补充"]
             for word in prohibited:
                 if word in body:
@@ -907,18 +902,22 @@ class GlobalTechAuditor(DocumentAuditor):
     def run(self):
         self.check_required_sections([
             "技术栈", "工程结构", "公共模块",
-            "公共表定义", "全局接口约定", "全局安全规范",
+            "公共表定义", "全局接口约定", "全局安全规范", "基础设施",
         ])
         self.check_table_format()
 
-        # 检查 2.5.2 响应结构包含 code/message/data
-        sec25_text = self._section_text(r"2\.5\.2")
-        if "code" not in sec25_text or "message" not in sec25_text or "data" not in sec25_text:
+        # 检查 §5.2 统一响应结构包含 code/message/data/traceId/timestamp
+        sec25_text = self._section_text(r"§?5\.2.*响应结构|统一响应结构")
+        missing_fields = []
+        for field in ("code", "message", "data", "traceId", "timestamp"):
+            if field not in sec25_text:
+                missing_fields.append(field)
+        if missing_fields:
             self.add_issue(
                 "response_structure",
                 "blocking",
-                "§2.5.2 统一响应结构",
-                "未明确声明响应结构包含 code/message/data 三个字段",
+                "§5.2 统一响应结构",
+                f"未明确声明响应结构包含字段: {', '.join(missing_fields)}",
             )
 
 
