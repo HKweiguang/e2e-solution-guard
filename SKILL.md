@@ -128,4 +128,13 @@ e2e-solution-guard 的核心不是"写文档"，而是**管理从想法到代码
 
 ---
 
-*Skill 版本：v2.3*
+*Skill 版本：v2.4*
+
+**v2.4 变更摘要**：
+- 4轮深度评审修复 60+ 处问题（术语一致性、编号体系、交叉引用、正则精度、死代码清理）
+- doc-audit.py 9种审计类型全部通过自审计（0 blocking / 0 warning / 0 hints）
+- 统一错误码格式正则（`ERROR_CODE_RE` 模块级常量）
+- 优化 scan_downstream 限定 upstream-document 表格区域搜索
+- 修复验收标准与功能点关联检查双层回退逻辑
+- 顶层模板统一"推荐=否章节不可删除"说明
+- 全量 CLI 示例 `python` → `python3`
