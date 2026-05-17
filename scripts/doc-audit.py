@@ -567,8 +567,8 @@ class PRDAuditor(DocumentAuditor):
                     )
 
         # §7 每个错误码在 §6 中有对应触发场景
-        # 从 sec7 中提取反引号包裹的标识符作为候选错误码
-        err_codes = re.findall(r"`([^`\s]+)`", sec7_text)
+        # 从 sec7 中提取反引号包裹的候选错误码，过滤掉字段名、状态值等非错误码内容
+        err_codes = re.findall(r"`([A-Z][A-Z_]*-[A-Z][A-Z_]*-\d+)`", sec7_text)
         for code in set(err_codes):
             if code not in sec6_text:
                 self.add_hint(
@@ -589,8 +589,15 @@ class PRDAuditor(DocumentAuditor):
                     ac_rows.append(row)
         for row in ac_rows:
             ac_id = row[0].strip()
-            ac_desc = " | ".join(row[1:]) if len(row) > 1 else ""
-            has_ref = any(fid in ac_desc for fid in feature_ids) if feature_ids else False
+            # 优先检查功能编号列（第二列），如存在则精确匹配
+            feature_col = row[1].strip() if len(row) > 1 else ""
+            has_ref = False
+            if feature_col and feature_ids:
+                has_ref = any(fid == feature_col or fid in feature_col for fid in feature_ids)
+            if not has_ref and feature_ids:
+                # 回退：检查整行文本中是否出现功能点编号
+                ac_desc = " | ".join(row[1:]) if len(row) > 1 else ""
+                has_ref = any(fid in ac_desc for fid in feature_ids)
             if not has_ref and feature_ids:
                 self.add_issue(
                     "acceptance_no_feature",
@@ -685,9 +692,9 @@ class TechAuditor(DocumentAuditor):
             if code not in sec4_text:
                 self.add_hint(
                     "exception_not_in_api",
-                    "warning",
+                    "hint",
                     "§7 异常处理",
-                    f"异常 {code} 在 §4 接口设计中未作为错误码返回",
+                    f"异常 {code} 在 §4 接口设计中未作为错误码返回（系统/第三方异常通常不逐接口列举，属正常情况）",
                 )
 
     def check_interface_consistency(self, sec4_text: str, sec13_text: str):
