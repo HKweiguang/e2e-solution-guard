@@ -16,3 +16,4 @@ __pycache__/
 # Logs
 *.log
 report.html
+.test-project/
