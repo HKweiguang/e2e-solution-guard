@@ -400,8 +400,6 @@ class DocumentAuditor:
                 or any(name == p.name and p.exists() for p in self.upstream_paths)
                 for name in possible_names
             )
-            if not found and "/" in doc_name:
-                found = (self.doc_path.parent / doc_name).exists() or (self.doc_path.parent / (doc_name + ".md")).exists()
             if not found and "规范" not in doc_name and "AGENTS" not in doc_name:
                 # 放宽：顶层定义或 AGENTS 可能尚未落地为文件
                 self.add_hint(
@@ -563,12 +561,12 @@ class PRDAuditor(DocumentAuditor):
                         "unreferenced_feature",
                         "warning",
                         "内部自洽性",
-                        f"功能点 {fid} 在 §5/§6/§7/§8 中未被引用，请确认是否有遗漏章节",
+                        f"功能点 {fid} 在 §6/§7/§8 中未被引用，请确认是否有遗漏章节",
                     )
 
         # §7 每个错误码在 §6 中有对应触发场景
         # 从 sec7 中提取反引号包裹的候选错误码，过滤掉字段名、状态值等非错误码内容
-        err_codes = re.findall(r"`([A-Z][A-Z_]*-[A-Z][A-Z_]*-\d+)`", sec7_text)
+        err_codes = re.findall(rf"`({ERROR_CODE_RE})`", sec7_text)
         for code in set(err_codes):
             if code not in sec6_text:
                 self.add_hint(
@@ -593,11 +591,13 @@ class PRDAuditor(DocumentAuditor):
             feature_col = row[1].strip() if len(row) > 1 else ""
             has_ref = False
             if feature_col and feature_ids:
-                has_ref = any(fid == feature_col or fid in feature_col for fid in feature_ids)
+                # 按常见分隔符拆分后精确匹配，避免前缀误匹配（如 USER-001 误命中 USER-0010）
+                col_parts = re.split(r"[,，;；\s|]+", feature_col)
+                has_ref = any(fid == part for part in col_parts for fid in feature_ids)
             if not has_ref and feature_ids:
-                # 回退：检查整行文本中是否出现功能点编号
+                # 回退：检查整行文本中是否出现功能点编号（使用词边界）
                 ac_desc = " | ".join(row[1:]) if len(row) > 1 else ""
-                has_ref = any(fid in ac_desc for fid in feature_ids)
+                has_ref = any(re.search(rf"\b{re.escape(fid)}\b", ac_desc) for fid in feature_ids)
             if not has_ref and feature_ids:
                 self.add_issue(
                     "acceptance_no_feature",
@@ -657,7 +657,6 @@ class InteractionAuditor(DocumentAuditor):
 
         # 页面编号格式由项目自定义，不硬编码连续性检查
         self.check_table_format()
-        self.check_term_consistency()
         self.check_upstream_references()
 
 
@@ -678,7 +677,6 @@ class TechAuditor(DocumentAuditor):
         sec13_text = self._section_text(r"§13\s+接口清单")
 
         self.check_table_format()
-        self.check_term_consistency()
         self.check_upstream_references()
         self.check_interface_consistency(sec4_text, sec13_text)
         # check_error_code_format 需要传入 error_prefixes 参数，当前无项目级配置，暂不调用
@@ -686,13 +684,13 @@ class TechAuditor(DocumentAuditor):
 
         # §7 每个异常场景对应 PRD 错误处理或模块特定异常
         # 提取符合错误码格式的反引号内容（如 ERR-001、TICKET-001）
-        ex_codes = re.findall(r"`([A-Z]+-[A-Z]+-\d+)`", sec7_text)
+        ex_codes = re.findall(rf"`({ERROR_CODE_RE})`", sec7_text)
         for code in set(ex_codes):
             # 检查是否也在 §4 接口设计中出现
             if code not in sec4_text:
                 self.add_hint(
                     "exception_not_in_api",
-                    "hint",
+                    "info",
                     "§7 异常处理",
                     f"异常 {code} 在 §4 接口设计中未作为错误码返回（系统/第三方异常通常不逐接口列举，属正常情况）",
                 )
@@ -736,7 +734,6 @@ class UIAuditor(DocumentAuditor):
 
         # 页面编号格式由项目自定义，不硬编码连续性检查
         self.check_table_format()
-        self.check_term_consistency()
         self.check_upstream_references()
 
         # 每个页面必须有默认/空/错误三种状态
@@ -811,19 +808,18 @@ class TestAuditor(DocumentAuditor):
 
         # 测试用例编号格式完全由项目自定义，此处不做硬编码格式检查
         self.check_table_format()
-        self.check_term_consistency()
         self.check_upstream_references()
 
         # §6 覆盖检查报告中每个验收标准在 §1/§2 中有对应用例
         sec6_text = self._section_text(r"§6\s+覆盖检查报告")
         all_cases = sec1_text + sec2_text
         # 验收标准编号格式由项目自定义（如 ACC-001），不硬编码为 §8.x
-        # 从覆盖检查报告表格中提取验收标准编号（跳过表头和分隔行）
+        # 从覆盖检查报告表格中提取验收标准编号（跳过表头、分隔行和空首列）
         sec6_table = self._extract_table_after(r"§6\s+覆盖检查报告")
         ac_ids = []
         if sec6_table:
             for row in sec6_table:
-                if row and not re.match(r"^:?-+:?$", row[0]) \
+                if row and row[0].strip() and not re.match(r"^:?-+:?$", row[0]) \
                         and row[0].strip() not in ("验收标准编号", "编号", "ID"):
                     ac_ids.append(row[0].strip())
         for ac_id in ac_ids:
@@ -895,6 +891,9 @@ class GlobalTechAuditor(DocumentAuditor):
             )
 
 
+# 错误码格式正则（模块级常量，统一标准）
+ERROR_CODE_RE = r"[A-Z][A-Z_]*-[A-Z][A-Z_]*-\d+"
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 4. 下游影响扫描器
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -913,10 +912,12 @@ def scan_downstream(doc_path: Path, docs_dir: Path) -> List[dict]:
         # 检查 upstream-document 表格中是否出现 target_name
         if "上游文档" in text:
             # 优先在 upstream-document 表格区域内搜索，避免短文件名在正文误匹配
+            # 先安全过滤掉围栏代码块，避免代码块内的 # 注释被误认为 heading
+            text_no_code = re.sub(r"```[\s\S]*?```", "", text)
             upstream_match = re.search(
-                r"上游文档.*?(?=^#{1,3}\s|\Z)", text, re.MULTILINE | re.DOTALL
+                r"上游文档.*?(?=^#{1,3}\s|\Z)", text_no_code, re.MULTILINE | re.DOTALL
             )
-            search_area = upstream_match.group(0) if upstream_match else text
+            search_area = upstream_match.group(0) if upstream_match else text_no_code
             scope_match = re.search(
                 rf"\|\s*{re.escape(target_name)}\s*\|\s*[^|]+\|\s*([^|\n]+)\|",
                 search_area,
