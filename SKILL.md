@@ -2,12 +2,12 @@
 name: e2e-solution-guard
 description: >
   End-to-end solution management from idea to code: evaluate ideas, generate and maintain
-  PRDs, interaction designs, UI specs, design systems, technical designs, and test reports
+  PRDs, interaction designs, design systems, technical designs, and test reports
   with upstream-downstream dependency tracking. Enforces that any change traces back to
   upstream and syncs downstream, preventing implementation drift.
   Use when the user asks to: (1) evaluate, analyze, or refine a product idea, feature request,
   or technical proposal, (2) create, write, modify, or update any project documentation
-  (PRD, requirements, tech design, interaction design, UI design, test plan, test cases, etc.),
+  (PRD, requirements, tech design, interaction design, test plan, test cases, etc.),
   (3) review, audit, or check document quality, structure, completeness, numbering continuity,
   cross-references, or error-code mappings, (4) standardize, align, or check consistency
   between documents or between code and documents, (5) ensure changes to upstream docs
@@ -39,10 +39,12 @@ e2e-solution-guard 的核心不是"写文档"，而是**管理从想法到代码
 以下是一种常见的步骤衔接方式，供项目参考：
 
 ```
-[调研] → [PRD] → [交互设计] → [UI 设计] → [技术方案] → [测试]
-          ↑                                          │
-          └──── 发现上游问题需回改 ─────────────────────┘
+[调研] → [PRD] → [交互设计] → [技术方案] → [测试]
+          ↑                                │
+          └──── 发现上游问题需回改 ───────────┘
 ```
+
+**模块级视觉规范来源**：交互设计 §4.3 组件交互的「视觉表现」列 + 项目 UI-顶层定义的 Token 体系。不需要独立的 UI 设计文档。
 
 步骤顺序由项目根据阶段决定，skill 不强制。每个步骤产出的文档数量（按模块、按端或其他方式拆分）由项目需求决定。
 
@@ -57,7 +59,7 @@ e2e-solution-guard 的核心不是"写文档"，而是**管理从想法到代码
 | 发现上游缺陷需回改 | `references/workflow/change-propagation.md` | 回改触发、下游扫描、级联修改、重新验证 |
 | 代码已实现，验证一致性 | `references/workflow/code-verification.md` | 文档→代码闭环：定位代码、五项对比、产出审计报告 |
 | 启动审计 | `references/workflow/audit-procedure.md` | subagent审计方法、语义审计执行步骤、配置建议 |
-| 需要具体步骤模板 | `references/steps/*-step.md` | PRD/交互/UI/技术/测试的文档结构和写作要求 |
+| 需要具体步骤模板 | `references/steps/*-step.md` | PRD/交互/技术/测试的文档结构和写作要求 |
 | 需要顶层定义模板 | `references/top-level/*-top-level-template.md` | 全局规范模板（生成项目版本时参考） |
 | 生成/修改后自查 | `references/rules/consistency-rules.md` | 编号连续性、双向引用、术语一致性、顶层定义交叉对齐等硬规则 |
 
@@ -85,7 +87,7 @@ e2e-solution-guard 的核心不是"写文档"，而是**管理从想法到代码
 |------|---------|-------------|
 | PRD | `references/steps/prd-step.md` | `references/top-level/prd-top-level-template.md` |
 | 交互设计 | `references/steps/interaction-step.md` | `references/top-level/interaction-top-level-template.md` |
-| UI 设计 | `references/steps/ui-step.md` | `references/top-level/ui-top-level-template.md` |
+
 | 技术方案 | `references/steps/tech-step.md` | `references/top-level/tech-top-level-template.md` |
 | 测试 | `references/steps/test-step.md` | — |
 | 代码审计 | `references/steps/code-audit-report.md` | — |
@@ -128,4 +130,4 @@ e2e-solution-guard 的核心不是"写文档"，而是**管理从想法到代码
 
 ---
 
-*Skill 版本：v2.4*
+*Skill 版本：v2.6*
