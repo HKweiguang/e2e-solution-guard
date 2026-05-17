@@ -725,18 +725,17 @@ class TechAuditor(DocumentAuditor):
 
 
 class UIAuditor(DocumentAuditor):
-    """UI 设计文档审计器"""
+    """UI 设计文档审计器（HTML 高保真原型）"""
 
     def run(self):
         self.check_required_sections([
-            "设计系统引用", "页面布局", "组件样式", "状态展示", "与交互设计对应",
+            "设计系统引用", "HTML 原型", "与交互设计对应",
         ])
 
         # 页面编号格式由项目自定义，不硬编码连续性检查
         self.check_table_format()
         self.check_upstream_references()
 
-        # 每个页面必须有默认/空/错误三种状态
         # 提取所有页面章节（一级标题匹配页面编号格式）
         page_nodes: List[List[MarkdownNode]] = []
         current_page: List[MarkdownNode] = []
@@ -755,42 +754,101 @@ class UIAuditor(DocumentAuditor):
             pm = re.search(r"([A-Z]+-[A-Z]+-\d+)", page_title)
             page_id = pm.group(1) if pm else "未知页面"
 
-            # 在页面节点中查找 "状态展示" heading
-            state_text = ""
-            in_state_section = False
-            state_heading_level = 6
+            # 在页面节点中查找 HTML 代码块
+            html_blocks: List[str] = []
+            in_html_section = False
+            html_heading_level = 6
             for n in page:
-                if n.type == "heading" and "状态展示" in n.content:
-                    in_state_section = True
-                    state_heading_level = n.meta.get("level", 6)
+                if n.type == "heading" and "HTML 原型" in n.content:
+                    in_html_section = True
+                    html_heading_level = n.meta.get("level", 6)
                     continue
-                if in_state_section:
-                    if n.type == "heading" and n.meta.get("level", 1) <= state_heading_level:
+                if in_html_section:
+                    if n.type == "heading" and n.meta.get("level", 1) <= html_heading_level:
                         break
-                    if n.type == "table":
-                        rows = n.meta.get("rows", [])
-                        for row in rows:
-                            state_text += " | ".join(row) + "\n"
-                    else:
-                        state_text += n.content + "\n"
+                    if n.type == "code" and n.meta.get("lang", "").lower() in ("html", "htm"):
+                        html_blocks.append(n.content)
 
-            if not state_text:
+            if not html_blocks:
                 self.add_issue(
-                    "missing_ui_state_section",
+                    "missing_ui_html_prototype",
                     "blocking",
-                    f"{page_id} 状态展示",
-                    f"页面 {page_id} 缺少状态展示子节",
+                    f"{page_id} HTML 原型",
+                    f"页面 {page_id} 缺少 HTML 原型代码块",
                 )
                 continue
 
-            states = ["默认态", "悬停态", "按下态", "聚焦态", "禁用态", "加载态", "空状态", "错误状态", "成功状态", "骨架态"]
-            missing = [s for s in states if s not in state_text]
-            if missing:
+            html_text = "\n".join(html_blocks)
+
+            # 检查 HTML 完整性
+            if not re.search(r"<html[\s>]|<!DOCTYPE\s+html", html_text, re.IGNORECASE):
                 self.add_issue(
-                    "missing_ui_state",
+                    "ui_html_incomplete",
                     "blocking",
-                    f"{page_id} 状态展示",
-                    f"页面 {page_id} 缺少状态描述: {', '.join(missing)}",
+                    f"{page_id} HTML 原型",
+                    f"页面 {page_id} 的 HTML 原型不是完整文档（缺少 <html> 或 <!DOCTYPE html>）",
+                )
+
+            # 检查 CSS 变量使用
+            if "var(--" not in html_text:
+                self.add_issue(
+                    "ui_html_no_css_vars",
+                    "blocking",
+                    f"{page_id} HTML 原型",
+                    f"页面 {page_id} 的 HTML 原型未使用 CSS 变量（var(--*)）",
+                )
+
+            # 检查状态样式
+            state_patterns = {
+                "hover": r":hover",
+                "active/pressed": r":active",
+                "focus": r":focus|:focus-visible",
+                "disabled": r"\.disabled|:disabled",
+                "loading": r"\.loading",
+            }
+            missing_states = []
+            for state_name, pattern in state_patterns.items():
+                if not re.search(pattern, html_text):
+                    missing_states.append(state_name)
+            if missing_states:
+                self.add_hint(
+                    "ui_html_missing_states",
+                    "warning",
+                    f"{page_id} HTML 原型",
+                    f"页面 {page_id} 的 HTML 原型可能缺少状态样式: {', '.join(missing_states)}",
+                )
+
+            # 检查是否使用静态数据（简单启发式：不应有 fetch/XMLHttpRequest/axios）
+            if re.search(r"\bfetch\b|\bXMLHttpRequest\b|\.ajax\b|axios\b", html_text):
+                self.add_issue(
+                    "ui_html_has_business_logic",
+                    "blocking",
+                    f"{page_id} HTML 原型",
+                    f"页面 {page_id} 的 HTML 原型包含数据请求逻辑（fetch/XMLHttpRequest/axios），UI 原型应使用静态假数据",
+                )
+
+            # 检查"与交互设计对应"表格
+            has_mapping = False
+            in_mapping_section = False
+            mapping_heading_level = 6
+            for n in page:
+                if n.type == "heading" and "与交互设计对应" in n.content:
+                    in_mapping_section = True
+                    mapping_heading_level = n.meta.get("level", 6)
+                    continue
+                if in_mapping_section:
+                    if n.type == "heading" and n.meta.get("level", 1) <= mapping_heading_level:
+                        break
+                    if n.type == "table":
+                        has_mapping = True
+                        break
+
+            if not has_mapping:
+                self.add_issue(
+                    "missing_ui_interaction_mapping",
+                    "blocking",
+                    f"{page_id} 与交互设计对应",
+                    f"页面 {page_id} 缺少与交互设计对应的表格",
                 )
 
 
