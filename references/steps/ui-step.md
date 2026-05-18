@@ -45,6 +45,15 @@
   </style>
 </head>
 <body>
+  <!--
+  状态映射表（关节层）：
+  | 交互状态 | CSS 类/伪类 | Token 变量 | 技术方案引用 |
+  | 默认态   | （无）       | —          | Button 组件 default 样式 |
+  | 悬停态   | :hover       | --primary-hover | Button 组件 hover 样式 |
+  | 按下态   | :active      | --primary-active | Button 组件 active 样式 |
+  | 禁用态   | .disabled    | --disabled | Button 组件 disabled 属性 |
+  | 加载态   | .loading     | --primary + opacity: 0.7 | Button 组件 loading 状态 |
+  -->
   <section id="page-001"> <!-- 静态假数据，无 JS --> </section>
   <section id="page-002"> <!-- 静态假数据，无 JS --> </section>
 </body>
@@ -61,10 +70,39 @@
 
 ## §3 与交互设计对应
 
-| UI 页面 | 交互页面编号 | 状态视觉映射 |
-|---------|-------------|-------------|
-| 页面1 | PAGE-001 | default / hover / active / focus / disabled |
-| 页面2 | PAGE-002 | default / hover / active / focus / disabled / loading / empty / error / success / skeleton |
+### 3.1 页面映射
+
+| UI 页面 | 交互页面编号 | 对应 `<section id>` |
+|---------|-------------|-------------------|
+| 页面1 | PAGE-001 | page-001 |
+| 页面2 | PAGE-002 | page-002 |
+
+### 3.2 状态映射表（关节层）
+
+> **核心作用**：显式声明"交互设计定义的状态名称 → UI 实现的 CSS 类/伪类 → UI-顶层定义 Token → 技术方案引用"的完整映射链。禁止让映射关系隐式散落在 HTML 代码中。
+
+**格式**：每个页面一张状态映射表。列：**交互状态 | CSS 类/伪类 | Token 变量 | 技术方案引用**。
+
+**填写示例**（PAGE-001 注册页面）：
+
+| 交互状态 | CSS 类/伪类 | Token 变量 | 技术方案引用 |
+|---------|------------|-----------|-------------|
+| 默认态 | （无） | — | Button 组件 default 样式 |
+| 悬停态 | `:hover` | `--color-primary-hover` | Button 组件 hover 样式 |
+| 按下态 | `:active` | `--color-primary-active` | Button 组件 active 样式 |
+| 聚焦态 | `:focus-visible` | `--focus-ring` | Button 组件 focus 样式 |
+| 禁用态 | `.disabled` / `:disabled` | `--color-disabled` | Button 组件 disabled 属性 |
+| 加载态 | `.loading` | `--color-primary` + `opacity: 0.7` | Button 组件 loading 状态 |
+| 空状态 | `.empty` | `--color-text-secondary` | Empty 组件 |
+| 错误状态 | `.error` | `--color-error` | Form 组件 error 样式 |
+| 成功状态 | `.success` | `--color-success` | Toast 组件 success 样式 |
+| 骨架态 | `.skeleton` | `--color-skeleton` | Skeleton 组件 |
+
+**常见陷阱**：
+- ❌ 映射表只列状态名，不写 CSS 类名——开发人员无法确定用 `:hover` 还是 `.hover`
+- ❌ 映射表不写 Token 变量——无法追溯视觉规范来源
+- ❌ 映射表不写技术方案引用——下游技术方案无法对齐组件选型
+- ❌ 交互设计更新了状态名（如"按下态"改为"激活态"），映射表未同步更新
 
 > 基础状态：default（默认态）、hover（悬停态）、active（按下态）、focus（聚焦态）、disabled（禁用态）、loading（加载态）
 > 异步状态：empty（空状态）、error（错误状态）、success（成功状态）、skeleton（骨架态）
@@ -91,7 +129,9 @@
 - [ ] §2 HTML 原型包含完整的 `<!DOCTYPE html>` 文档结构
 - [ ] §2 HTML 原型在 `<head>` 或 `<style>` 中声明了 upstream 注释
 - [ ] §3 与交互设计对应表格覆盖了本页面组的所有页面
-- [ ] §3 状态视觉映射覆盖了交互设计定义的全部基础状态和异步状态
+- [ ] §3.2 状态映射表覆盖了交互设计定义的全部基础状态和异步状态
+- [ ] §3.2 状态映射表每行包含：交互状态、CSS 类/伪类、Token 变量、技术方案引用
+- [ ] §3.2 状态映射表中的 CSS 类名与 §2 HTML 原型中的实际类名一致
 
 ### 范围一致性 `[脚本]`
 - [ ] 每个 `<section id="page-xxx">` 对应交互设计中的一个页面编号

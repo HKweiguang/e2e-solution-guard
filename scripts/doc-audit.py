@@ -691,17 +691,18 @@ class InteractionAuditor(DocumentAuditor):
                     "未检测到任何符合格式的页面章节（如 §1 PAGE-TICKET-001），请确认页面编号格式",
                 )
 
-        # 每个页面检查 6 个必含子节
+        # 每个页面检查 6 个必含子节 + 1 个可选子节（响应式适配）
         for sec in page_sections:
             pm = re.search(r"([A-Z]+-[A-Z]+-\d+)", sec)
             page_id = pm.group(1) if pm else "未知页面"
-            for sub in ["页面结构", "组件交互", "状态机", "页面流程", "异常处理", "与 PRD 对应"]:
+            required_subs = ["页面结构", "组件交互", "状态机", "页面流程", "异常处理", "与 PRD 对应"]
+            for sub in required_subs:
                 if sub not in sec:
                     self.add_issue(
                         "missing_subsection",
                         "blocking",
                         f"{page_id} 交互设计",
-                        f"页面 {page_id} 缺少子节: {sub}",
+                        f"页面 {page_id} 缺少必含子节: {sub}",
                     )
             # 检查页面结构子节中是否包含 SVG 线框图
             if "页面结构" in sec and "<svg" not in sec:
@@ -710,6 +711,14 @@ class InteractionAuditor(DocumentAuditor):
                     "warning",
                     f"{page_id} 页面结构",
                     f"页面 {page_id} 的页面结构子节缺少 SVG 线框图",
+                )
+            # 检查组件交互子节是否包含力学约束
+            if "组件交互" in sec and "力学约束" not in sec:
+                self.add_hint(
+                    "missing_mechanical_constraints",
+                    "warning",
+                    f"{page_id} 组件交互",
+                    f"页面 {page_id} 的组件交互子节缺少力学约束列（超时、重试、防抖等），建议补充以完善骨架的力学属性",
                 )
 
         # 边界检查：交互设计不写视觉
@@ -872,6 +881,15 @@ class UIAuditor(DocumentAuditor):
                 if sec_match and len(sec_match.group(1).strip()) < 10:
                     self.add_hint("ui_html_empty_section", "warning", f"section#{sec_id}",
                                   f"页面 {sec_id} 内容过少，请补充静态假数据")
+
+        # 10. 状态映射表（关节层）
+        if "状态映射表" not in text and "交互状态" not in text:
+            self.add_hint(
+                "ui_html_missing_state_mapping",
+                "warning",
+                "HTML",
+                "未检测到状态映射表注释。建议在 HTML 注释中显式声明'交互状态 → CSS 类/伪类 → Token'的映射关系，避免映射隐式散落在代码中",
+            )
 
 
 class TestAuditor(DocumentAuditor):
