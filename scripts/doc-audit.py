@@ -268,7 +268,7 @@ class DocumentAuditor:
                 # 检查是否有预留声明（如"F107、F108 为预留跳号"）
                 skipped = [f"{prefix}{n:03d}" for n in range(numbers[i] + 1, numbers[i + 1])]
                 has_reserved = any(
-                    re.search(rf"{s}.*预留|预留.*{s}|编号段.*{s}|{s}.*编号段", self.raw_text)
+                    re.search(rf"{s}.*预留|预留.*{s}|角色标识.*{s}|{s}.*角色标识", self.raw_text)
                     for s in skipped
                 )
                 if has_reserved:
@@ -765,7 +765,7 @@ class TechAuditor(DocumentAuditor):
         # self.check_error_code_format(error_prefixes=[...])
 
         # §7 每个异常场景对应 PRD 错误处理或模块特定异常
-        # 提取符合错误码格式的反引号内容（如 ERR-001、TICKET-CUST-001）
+        # 提取符合错误码格式的反引号内容（如 ERR-TICKET-CUST-001、TICKET-CUST-001）
         ex_codes = re.findall(rf"`({ERROR_CODE_RE})`", sec7_text)
         for code in set(ex_codes):
             # 检查是否也在 §4 接口设计中出现
@@ -990,7 +990,7 @@ class GlobalTechAuditor(DocumentAuditor):
 
 
 # 错误码格式正则（模块级常量，统一标准）
-ERROR_CODE_RE = r"[A-Z][A-Z_]*-[A-Z][A-Z_]*-\d+"
+ERROR_CODE_RE = r"[A-Z][A-Z0-9_]*(?:-[A-Z][A-Z0-9_]*)*-\d+"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 4. 下游影响扫描器
