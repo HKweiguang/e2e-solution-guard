@@ -1096,11 +1096,11 @@ class GlobalInteractionAuditor(DocumentAuditor):
         self.check_table_format()
 
         # 检查 §2 交互状态规范包含 6 基础 + 4 异步状态
-        sec3_text = self._section_text(r"§?2\s+(?:交互状态|交互状态规范)")
+        sec2_text = self._section_text(r"§?2\s+(?:交互状态|交互状态规范)")
         base_states = ["默认态", "悬停态", "按下态", "聚焦态", "禁用态", "加载态"]
         async_states = ["空状态", "错误状态", "成功状态", "骨架态"]
-        missing_base = [s for s in base_states if s not in sec3_text]
-        missing_async = [s for s in async_states if s not in sec3_text]
+        missing_base = [s for s in base_states if s not in sec2_text]
+        missing_async = [s for s in async_states if s not in sec2_text]
         if missing_base:
             self.add_issue(
                 "interaction_state_incomplete",
@@ -1117,9 +1117,9 @@ class GlobalInteractionAuditor(DocumentAuditor):
             )
 
         # 检查 §3 交互反馈规范包含四类反馈时效红线
-        sec4_text = self._section_text(r"§?3\s+(?:交互反馈|交互反馈规范)")
+        sec3_text = self._section_text(r"§?3\s+(?:交互反馈|交互反馈规范)")
         feedback_types = ["点击响应", "弹窗出现", "页面切换", "异步提交"]
-        missing_fb = [f for f in feedback_types if f not in sec4_text]
+        missing_fb = [f for f in feedback_types if f not in sec3_text]
         if missing_fb:
             self.add_issue(
                 "feedback_redline_missing",
