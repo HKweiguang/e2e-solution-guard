@@ -158,7 +158,7 @@ e2e-solution-guard/
 
 ## 多端项目示例
 
-一个 web 应用同时包含 C端业务页面和管理后台时，按业务域分模块、模块内按端分文件：
+一个 web 应用同时包含 C端消费者、B端商家和管理后台时，按业务域分模块、模块内按角色分 PRD、按角色+设备分交互/UI：
 
 ```
 docs/
@@ -168,37 +168,43 @@ docs/
 │   ├── 项目-UI-顶层定义.md
 │   └── 项目-技术-顶层定义.md
 ├── 用户管理/
-│   ├── prd.md                    # 涵盖 C端 + 管理后台
-│   ├── 交互设计-c端.md            # 注册/登录/个人信息
-│   ├── 交互设计-管理后台.md        # 用户列表/权限/冻结
-│   ├── ui-c端.html
-│   ├── ui-管理后台.html
-│   ├── 技术方案.md                # 一套用户服务接口
+│   ├── prd-c端.md                # C端消费者：注册/登录/个人信息
+│   ├── prd-admin.md              # 管理后台：用户列表/权限/冻结
+│   ├── 交互设计-c端.md            # C端交互（web+app 合并）
+│   ├── ui-c端-web.html           # C端 web 视觉稿
+│   ├── ui-c端-app.html           # C端 App 视觉稿
+│   ├── 交互设计-admin.md          # 管理后台交互
+│   ├── ui-admin.html             # 管理后台视觉稿
+│   ├── 技术方案.md                # 统一技术方案
 │   └── 测试报告.md
 ├── 订单管理/
-│   ├── prd.md
-│   ├── 交互设计-c端.md            # 购物车/下单/支付
-│   ├── 交互设计-管理后台.md        # 订单列表/发货/退款
-│   ├── ui-c端.html
-│   ├── ui-管理后台.html
+│   ├── prd-c端.md                # C端消费者：购物车/下单/支付
+│   ├── prd-b端.md                # B端商家：订单处理/发货
+│   ├── prd-admin.md              # 管理后台：退款审核
+│   ├── 交互设计-c端.md
+│   ├── ui-c端-web.html
+│   ├── ui-c端-app.html
+│   ├── 交互设计-b端.md
+│   ├── ui-b端-web.html
+│   ├── 交互设计-admin.md
+│   ├── ui-admin.html
 │   ├── 技术方案.md
 │   └── 测试报告.md
-└── 数据统计/                     # 纯管理后台，无 C端
-    ├── prd.md
-    ├── 交互设计-管理后台.md
-    ├── ui-管理后台.html
+└── 数据统计/                     # 纯管理后台，无 C端/B端
+    ├── prd-admin.md
+    ├── 交互设计-admin.md
+    ├── ui-admin.html
     ├── 技术方案.md
     └── 测试报告.md
 ```
 
-### 多端编号段分配
+### 多端角色标识与编号
 
-| 模块 | 功能编号段 | 说明 |
-|------|-----------|------|
-| 用户管理 C端 | USER-001 ~ USER-099 | 注册/登录/个人信息 |
-| 用户管理 后台 | USER-101 ~ USER-199 | 用户列表/权限/冻结 |
-| 订单管理 C端 | ORDER-001 ~ ORDER-099 | 下单/支付/查看 |
-| 订单管理 后台 | ORDER-101 ~ ORDER-199 | 订单处理/退款审核 |
+| 角色 | 标识 | 功能编号示例 | 说明 |
+|------|------|------------|------|
+| C端消费者 | `CUST` | `USER-CUST-001` | 注册/登录/个人信息 |
+| B端商家 | `MERCHANT` | `ORDER-MERCHANT-001` | 店铺管理/商品上架 |
+| 管理后台 | `ADMIN` | `USER-ADMIN-001` | 用户列表/权限/冻结 |
 
 ---
 
@@ -213,7 +219,7 @@ docs/
 
 | 文档 | 类型 | 引用范围 |
 |------|------|---------|
-| PRD-v1-订单模块 | 需求输入 | ORDER-001 ~ ORDER-006 |
+| PRD-v1-订单模块-c端 | 需求输入 | ORDER-CUST-001 ~ ORDER-CUST-006 |
 | 项目技术-顶层定义 | 规范继承 | 技术栈、公共表、接口约定 |
 ```
 
@@ -231,7 +237,7 @@ docs/
 python3 scripts/doc-audit.py PRD.md --type prd
 
 # 增量审计（只检查变更的功能点）
-python3 scripts/doc-audit.py PRD.md --type prd --delta ORDER-001,ORDER-003
+python3 scripts/doc-audit.py PRD.md --type prd --delta ORDER-CUST-001,ORDER-CUST-003
 
 # 扫描下游影响
 python3 scripts/doc-audit.py PRD.md --type prd --scan-downstream ./docs/
@@ -244,14 +250,16 @@ python3 scripts/doc-audit.py PRD.md --type prd --scan-downstream ./docs/
 - 接口一致性（技术方案产物：§4 接口设计 vs §13 接口清单）
 - 术语一致性
 
-### 4. 编号段分配
+### 4. 角色标识分配
 
-功能/页面编号按模块分段，解决并行开发冲突：
+功能/页面编号按模块+角色分段，不同角色的需求各自独立编号：
 
-| 模块 | 功能编号段 | 页面编号段 |
-|------|-----------|-----------|
-| M01 订单模块 | ORDER-001 ~ ORDER-099 | PAGE-ORDER-001 ~ PAGE-ORDER-099 |
-| M02 用户模块 | USER-001 ~ USER-099 | PAGE-USER-001 ~ PAGE-USER-099 |
+| 模块 | 角色 | 角色标识 | 功能编号示例 | 页面编号示例 |
+|------|------|---------|------------|------------|
+| M01 订单模块 | C端消费者 | CUST | ORDER-CUST-001 | PAGE-CUST-ORDER-001 |
+| M01 订单模块 | B端商家 | MERCHANT | ORDER-MERCHANT-001 | PAGE-MERCHANT-ORDER-001 |
+| M02 用户模块 | C端消费者 | CUST | USER-CUST-001 | PAGE-CUST-PROFILE-001 |
+| M02 用户模块 | 管理后台 | ADMIN | USER-ADMIN-001 | PAGE-ADMIN-LIST-001 |
 
 模块内连续，段间允许跳号。
 

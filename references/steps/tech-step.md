@@ -201,7 +201,7 @@
 |------|-----|
 | URL | `POST /api/v1/tickets` |
 | 功能 | 创建工单 |
-| 对应功能点 | TICKET-002 |
+| 对应功能点 | TICKET-CUST-002 |
 | 权限 | 登录 |
 
 **请求参数**：
@@ -333,9 +333,9 @@ PENDING ──分配──> PROCESSING ──解决──> RESOLVED ──确认
 
 | 异常编号 | 异常类型 | 场景 | 触发条件 | 技术处理 | 用户提示 | 错误码 |
 |---------|---------|------|---------|---------|---------|--------|
-| EX-TICKET-001 | 业务异常 | 参数校验失败 | 标题为空 | 返回 PARAM_ERROR，不记录 ERROR 日志 | "标题不能为空" | `PARAM_ERROR` |
-| EX-TICKET-002 | 业务异常 | 工单不存在 | 查询已删除工单 | 返回 NOT_FOUND | "工单不存在或已删除" | `NOT_FOUND` |
-| EX-TICKET-003 | 系统异常 | 数据库连接超时 | MySQL 连接池耗尽 | 返回 SYSTEM_ERROR，记录 ERROR 日志，触发告警 | "系统繁忙，请稍后重试" | `SYSTEM_ERROR` |
+| EX-TICKET-CUST-001 | 业务异常 | 参数校验失败 | 标题为空 | 返回 PARAM_ERROR，不记录 ERROR 日志 | "标题不能为空" | `PARAM_ERROR` |
+| EX-TICKET-CUST-002 | 业务异常 | 工单不存在 | 查询已删除工单 | 返回 NOT_FOUND | "工单不存在或已删除" | `NOT_FOUND` |
+| EX-TICKET-CUST-003 | 系统异常 | 数据库连接超时 | MySQL 连接池耗尽 | 返回 SYSTEM_ERROR，记录 ERROR 日志，触发告警 | "系统繁忙，请稍后重试" | `SYSTEM_ERROR` |
 | EX-TICKET-004 | 第三方异常 | 通知服务不可用 | RabbitMQ 宕机 | 写入本地补偿表，定时重试 | 无（异步通知，用户无感知）| — |
 
 > 业务异常返回 HTTP 200 + 业务错误码（不触发熔断）；系统异常返回 HTTP 500 + 通用错误码（触发熔断告警）。
@@ -501,11 +501,11 @@ PENDING ──分配──> PROCESSING ──解决──> RESOLVED ──确认
 
 | 序号 | 接口名 | 方法 | 路径 | 对应功能点 | 权限 | 版本 |
 |------|--------|------|------|-----------|------|------|
-| 1 | 创建工单 | POST | `/api/v1/tickets` | TICKET-002 | 登录 | v1 |
-| 2 | 查询工单列表 | GET | `/api/v1/tickets` | TICKET-003 | 登录 | v1 |
-| 3 | 查询工单详情 | GET | `/api/v1/tickets/{id}` | TICKET-001 | 登录 | v1 |
-| 4 | 更新工单状态 | PATCH | `/api/v1/tickets/{id}/status` | TICKET-002 | 登录 | v1 |
-| 5 | 删除工单 | DELETE | `/api/v1/tickets/{id}` | TICKET-002 | 管理员 | v1 |
+| 1 | 创建工单 | POST | `/api/v1/tickets` | TICKET-CUST-002 | 登录 | v1 |
+| 2 | 查询工单列表 | GET | `/api/v1/tickets` | TICKET-CUST-003 | 登录 | v1 |
+| 3 | 查询工单详情 | GET | `/api/v1/tickets/{id}` | TICKET-CUST-001 | 登录 | v1 |
+| 4 | 更新工单状态 | PATCH | `/api/v1/tickets/{id}/status` | TICKET-CUST-002 | 登录 | v1 |
+| 5 | 删除工单 | DELETE | `/api/v1/tickets/{id}` | TICKET-CUST-002 | 管理员 | v1 |
 
 **常见陷阱**：
 - ❌ 接口清单与 §4 接口设计的接口数量/路径不一致——导致产物不一致
