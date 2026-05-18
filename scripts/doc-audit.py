@@ -748,138 +748,80 @@ class TechAuditor(DocumentAuditor):
 
 
 class UIAuditor(DocumentAuditor):
-    """UI 设计模板审计器（Markdown 指导文档中的 HTML 原型规范）
+    """UI 设计产物审计器（独立 HTML 文件）
     
-    审计对象：ui-step.md 模板文档（Markdown 格式，内含 HTML 代码块示例）
-    不审计产物：真正的 UI 设计产物是独立 HTML 文件，不在本审计器范围内
+    审计对象：用户产出的 UI 设计 HTML 文件（{页面组}.html）
+    不审计模板：skill 内部的 ui-step.md 模板不在本审计器范围内
     """
 
     def run(self):
-        self.check_required_sections([
-            "设计系统引用", "HTML 原型", "与交互设计对应",
-        ])
+        text = self.raw_text
 
-        self.check_table_format()
-        self.check_upstream_references()
+        # 1. HTML 完整性
+        if not re.search(r"<!DOCTYPE\s+html", text, re.IGNORECASE):
+            self.add_issue("ui_html_incomplete", "blocking", "HTML", "缺少 <!DOCTYPE html>")
+        if not re.search(r"<html", text, re.IGNORECASE):
+            self.add_issue("ui_html_incomplete", "blocking", "HTML", "缺少 <html> 标签")
 
-        # ui-step.md 是文档级模板（不按页面组织），直接在全局节点中查找内容
-        # 查找 §2 HTML 原型下的 HTML 代码块
-        html_blocks: List[str] = []
-        in_html_section = False
-        html_heading_level = 6
-        for n in self.nodes:
-            if n.type == "heading" and "HTML 原型" in n.content:
-                in_html_section = True
-                html_heading_level = n.meta.get("level", 6)
-                continue
-            if in_html_section:
-                if n.type == "heading" and n.meta.get("level", 1) <= html_heading_level:
-                    break
-                if n.type == "code" and n.meta.get("lang", "").lower() in ("html", "htm"):
-                    html_blocks.append(n.content)
+        # 2. upstream 注释
+        if not re.search(r"<!--\s*upstream:", text):
+            self.add_issue("missing_upstream", "blocking", "HTML", "头部缺少 upstream 注释声明")
 
-        if not html_blocks:
-            self.add_issue(
-                "missing_ui_html_prototype",
-                "blocking",
-                "HTML 原型",
-                "缺少 HTML 原型代码块",
-            )
+        # 3. 提取 CSS 文本（<style> 标签内）
+        css_blocks = re.findall(r"<style[^>]*>([\s\S]*?)</style>", text)
+        css_text = "\n".join(css_blocks)
+
+        # 4. CSS 变量使用
+        if "var(--" not in css_text:
+            self.add_issue("ui_html_no_css_vars", "blocking", "CSS", "未使用 CSS 变量（var(--*)）")
+
+        # 5. 硬编码色值检查（排除 :root 中的变量定义）
+        non_root_css = re.sub(r":root\s*\{[^}]*\}", "", css_text)
+        if re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\s*\(", non_root_css):
+            self.add_hint("ui_html_hardcoded_colors", "warning", "CSS",
+                          "发现硬编码色值（如 #RRGGBB 或 rgba()），应使用 CSS 变量引用 UI-顶层定义 Token")
+
+        # 6. 状态样式完整性
+        state_patterns = {
+            "hover": r":hover",
+            "active/pressed": r":active",
+            "focus": r":focus|:focus-visible",
+            "disabled": r"\.disabled|:disabled",
+            "loading": r"\.loading",
+        }
+        missing_states = [name for name, pat in state_patterns.items() if not re.search(pat, css_text)]
+        if missing_states:
+            self.add_hint("ui_html_missing_states", "warning", "CSS",
+                          f"可能缺少状态样式: {', '.join(missing_states)}")
+
+        # 7. 无 JS 业务逻辑
+        if re.search(r"\bfetch\b|\bXMLHttpRequest\b|\.ajax\b|axios\b", text):
+            self.add_issue("ui_html_has_business_logic", "blocking", "JS",
+                           "包含数据请求逻辑（fetch/XMLHttpRequest/axios），UI 原型应使用静态假数据")
+
+        # 8. 无行为事件（UI 不写行为）
+        behavior_patterns = [
+            r"\bonclick\s*=", r"\bonsubmit\s*=", r"\bonchange\s*=",
+            r"<form[^>]*\baction\s*=",
+            r"<a[^>]*\bhref\s*=\s*['\"][^#'\"]",
+            r"\blocation\.href\b", r"\bwindow\.open\b",
+        ]
+        if any(re.search(bp, text) for bp in behavior_patterns):
+            self.add_hint("behavior_in_ui", "warning", "HTML",
+                          "包含行为事件（onclick/onsubmit/onchange）或跳转逻辑（href/action），行为规则应移至交互设计")
+
+        # 9. 页面结构
+        sections = re.findall(r'<section[^>]*id="([^"]*)"', text)
+        if not sections:
+            self.add_hint("ui_html_no_sections", "warning", "HTML",
+                          '未检测到 <section id="page-xxx"> 页面结构')
         else:
-            html_text = "\n".join(html_blocks)
-
-            # 检查 HTML 完整性
-            if not re.search(r"<html[\s>]|<!DOCTYPE\s+html", html_text, re.IGNORECASE):
-                self.add_issue(
-                    "ui_html_incomplete",
-                    "blocking",
-                    "HTML 原型",
-                    "HTML 原型不是完整文档（缺少 <html> 或 <!DOCTYPE html>）",
-                )
-
-            # 检查 CSS 变量使用
-            if "var(--" not in html_text:
-                self.add_issue(
-                    "ui_html_no_css_vars",
-                    "blocking",
-                    "HTML 原型",
-                    "HTML 原型未使用 CSS 变量（var(--*)）",
-                )
-
-            # 检查状态样式
-            state_patterns = {
-                "hover": r":hover",
-                "active/pressed": r":active",
-                "focus": r":focus|:focus-visible",
-                "disabled": r"\.disabled|:disabled",
-                "loading": r"\.loading",
-            }
-            missing_states = []
-            for state_name, pattern in state_patterns.items():
-                if not re.search(pattern, html_text):
-                    missing_states.append(state_name)
-            if missing_states:
-                self.add_hint(
-                    "ui_html_missing_states",
-                    "warning",
-                    "HTML 原型",
-                    f"HTML 原型可能缺少状态样式: {', '.join(missing_states)}",
-                )
-
-            # 检查是否使用静态数据（简单启发式：不应有 fetch/XMLHttpRequest/axios）
-            if re.search(r"\bfetch\b|\bXMLHttpRequest\b|\.ajax\b|axios\b", html_text):
-                self.add_issue(
-                    "ui_html_has_business_logic",
-                    "blocking",
-                    "HTML 原型",
-                    "HTML 原型包含数据请求逻辑（fetch/XMLHttpRequest/axios），UI 原型应使用静态假数据",
-                )
-
-            # 边界检查：UI 设计不写行为
-            behavior_patterns = [
-                r"\bonclick\s*=",
-                r"\bonsubmit\s*=",
-                r"\bonchange\s*=",
-                r"<form[^>]*\baction\s*=",
-                r"<a[^>]*\bhref\s*=\s*['\"][^#'\"]",
-                r"\blocation\.href\b",
-                r"\bwindow\.open\b",
-            ]
-            found_behaviors = []
-            for bp in behavior_patterns:
-                if re.search(bp, html_text):
-                    found_behaviors.append(bp)
-            if found_behaviors:
-                self.add_hint(
-                    "behavior_in_ui",
-                    "warning",
-                    "HTML 原型",
-                    "HTML 原型中包含行为事件（onclick/onsubmit/onchange）或跳转逻辑（href/action），UI 设计应只写视觉，行为规则应移至交互设计",
-                )
-
-        # 检查"与交互设计对应"表格
-        has_mapping = False
-        in_mapping_section = False
-        mapping_heading_level = 6
-        for n in self.nodes:
-            if n.type == "heading" and "与交互设计对应" in n.content:
-                in_mapping_section = True
-                mapping_heading_level = n.meta.get("level", 6)
-                continue
-            if in_mapping_section:
-                if n.type == "heading" and n.meta.get("level", 1) <= mapping_heading_level:
-                    break
-                if n.type == "table":
-                    has_mapping = True
-                    break
-
-        if not has_mapping:
-            self.add_issue(
-                "missing_ui_interaction_mapping",
-                "blocking",
-                "与交互设计对应",
-                "缺少与交互设计对应的表格",
-            )
+            # 检查每个 section 是否有内容
+            for sec_id in sections:
+                sec_match = re.search(rf'<section[^>]*id="{re.escape(sec_id)}"[^>]*>([\s\S]*?)</section>', text)
+                if sec_match and len(sec_match.group(1).strip()) < 10:
+                    self.add_hint("ui_html_empty_section", "warning", f"section#{sec_id}",
+                                  f"页面 {sec_id} 内容过少，请补充静态假数据")
 
 
 class TestAuditor(DocumentAuditor):
