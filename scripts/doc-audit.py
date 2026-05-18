@@ -975,7 +975,7 @@ class GlobalTechAuditor(DocumentAuditor):
         self.check_table_format()
 
         # 检查 2.5.2 统一响应结构包含 code/message/data/traceId/timestamp
-        sec25_text = self._section_text(r"2\.5\.2.*响应结构|统一响应结构")
+        sec25_text = self._section_text(r"5\.2.*响应结构|统一响应结构")
         missing_fields = []
         for field in ("code", "message", "data", "traceId", "timestamp"):
             if field not in sec25_text:
