@@ -358,7 +358,7 @@ class DocumentAuditor:
                 if upstream_found:
                     break
                 in_header = False
-            if "上游产物" in n.content:
+            if "上游文档" in n.content:
                 in_header = True
                 upstream_found = True
             if in_header:
@@ -377,7 +377,7 @@ class DocumentAuditor:
             return
         
         # 提取表格中的文档名
-        table = self._extract_table_after(r"上游产物")
+        table = self._extract_table_after(r"上游文档")
         if not table or len(table) < 2:
             self.add_issue(
                 "missing_upstream",
@@ -406,11 +406,11 @@ class DocumentAuditor:
                     "upstream_not_found",
                     "warning",
                     "文件头部",
-                    f"上游产物 '{doc_name}' 在当前目录或 --upstream 参数中未找到，请确认路径",
+                    f"上游文档 '{doc_name}' 在当前目录或 --upstream 参数中未找到，请确认路径",
                 )
 
     def check_upstream_id_alignment(self, id_prefix: Optional[str] = None):
-        """检查上游产物中的关键编号是否在当前产物中有对应引用。
+        """检查上游文档中的关键编号是否在当前产物中有对应引用。
         
         当 --upstream 参数提供上游文件时，提取上游中的编号集合，与当前产物中的编号集合
         做差集比对，报告上游有但当前产物中缺失的编号。
@@ -450,7 +450,7 @@ class DocumentAuditor:
                 "upstream_id_missing",
                 "warning",
                 "跨产物对齐",
-                f"上游产物中定义的编号在当前产物中未出现: {', '.join(missing)}。"
+                f"上游文档中定义的编号在当前产物中未出现: {', '.join(missing)}。"
                 f"请确认是否遗漏对应实现，或该编号确实不适用于本产物。",
             )
 
@@ -1039,10 +1039,10 @@ def scan_downstream(doc_path: Path, docs_dir: Path) -> List[dict]:
             text = md_file.read_text(encoding="utf-8")
         except Exception:
             continue
-        if "上游产物" in text:
+        if "上游文档" in text:
             text_no_code = re.sub(r"```[\s\S]*?```", "", text)
             upstream_match = re.search(
-                r"上游产物.*?(?=^#{1,3}\s|\Z)", text_no_code, re.MULTILINE | re.DOTALL
+                r"上游文档.*?(?=^#{1,3}\s|\Z)", text_no_code, re.MULTILINE | re.DOTALL
             )
             search_area = upstream_match.group(0) if upstream_match else text_no_code
             scope_match = re.search(
@@ -1090,7 +1090,7 @@ class GlobalInteractionAuditor(DocumentAuditor):
 
     def run(self):
         self.check_required_sections([
-            "交互令牌", "跨端通用规则", "交互状态规范",
+            "交互令牌", "交互状态规范",
             "交互反馈规范", "交互规范", "无障碍设计",
         ])
         self.check_table_format()
@@ -1182,7 +1182,7 @@ def main():
         "--upstream",
         nargs="*",
         default=[],
-        help="上游产物路径（可多个）",
+        help="上游文档路径（可多个）",
     )
     parser.add_argument(
         "--delta",
@@ -1251,7 +1251,7 @@ def main():
     # 如提供了错误码前缀，追加错误码格式检查
     if args.error_prefixes:
         auditor.check_error_code_format(error_prefixes=args.error_prefixes)
-    # 如提供了上游产物，追加跨产物编号对齐检查
+    # 如提供了上游文档，追加跨产物编号对齐检查
     if args.upstream:
         auditor.check_upstream_id_alignment()
     report = auditor.report()
