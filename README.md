@@ -1,6 +1,6 @@
 # e2e-solution-guard
 
-一站式控制 AI 变更边界的文档依赖网络——从 PRD 到交互到 UI 到技术方案再到代码，任何变更必须追溯上游、同步下游，防止幻觉与规则绕过。
+一站式控制 AI 变更边界的产物依赖网络——从 PRD 到交互到 UI 到技术方案再到代码，任何变更必须追溯上游、同步下游，防止幻觉与规则绕过。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -10,7 +10,7 @@
 
 它的核心不是"文档模板"，而是**一站式的边界控制系统**：
 
-- 每份文档头部声明上游来源（`upstream-document`）
+- 每份产物头部声明上游来源（`upstream-document`）
 - 修改上游必须同步下游，或标注 `[待同步]`
 - 修改下游不得超出上游定义
 - AI 生成内容前必须做 gap 分析，禁止脑补
@@ -20,10 +20,10 @@
 AI 辅助开发时，以下场景频繁出现：
 
 1. **幻觉**：AI 凭空添加未定义的功能点、字段、接口
-2. **脱节**：改了 PRD 却忘了同步技术方案，导致文档之间不一致
+2. **脱节**：改了 PRD 却忘了同步技术方案，导致产物之间不一致
 3. **上下文碎片化**：跨会话后 AI 不记得之前的约束，规则被悄悄绕过
 
-`e2e-solution-guard` 通过**文档依赖网络**和**可运行的审计脚本**，一站式把 AI 从文档生成到代码落地锁死在既定边界内。
+`e2e-solution-guard` 通过**产物依赖网络**和**可运行的审计脚本**，一站式把 AI 从产物生成到代码落地锁死在既定边界内。
 
 ## 安装
 
@@ -47,8 +47,8 @@ git clone https://github.com/YOUR_USERNAME/e2e-solution-guard.git .kimi/skills/e
 
 AI 会自动：
 1. 读取 SKILL.md 中的流程定义
-2. 检查项目内是否已有文档
-3. 按模板生成文档，在头部写入 `upstream-document` 依赖表
+2. 检查项目内是否已有产物
+3. 按模板生成产物，在头部写入 `upstream-document` 依赖表
 4. 一站式执行完整性与一致性审计
 
 ## 项目结构
@@ -75,19 +75,19 @@ e2e-solution-guard/
 │   │   └── consistency-rules.md      # 编号连续性、双向引用、术语一致性
 │   └── workflow/                     # 执行流程
 │       ├── idea-evaluation.md        # 想法评估流程
-│       ├── document-workflow.md      # 文档生成/修改流程
+│       ├── document-workflow.md      # 产物生成/修改流程
 │       ├── change-propagation.md     # 变更传播流程
 │       ├── code-verification.md      # 代码验证流程
 │       └── audit-procedure.md        # 审计执行策略
 ├── scripts/
-│   └── doc-audit.py                  # 文档一致性审计脚本（标准库 only）
+│   └── doc-audit.py                  # 产物一致性审计脚本（标准库 only）
 ```
 
 ## 核心机制
 
 ### 1. 上游依赖声明
 
-每份文档头部必须包含 `upstream-document` 表格：
+每份产物头部必须包含 `upstream-document` 表格：
 
 ```markdown
 **上游文档**：
@@ -122,7 +122,7 @@ python3 scripts/doc-audit.py PRD.md --type prd --scan-downstream ./docs/
 - 编号连续性 & 重复检测
 - upstream-document 引用有效性
 - 表格格式完整性
-- 接口一致性（技术方案文档：§4 接口设计 vs §13 接口清单）
+- 接口一致性（技术方案产物：§4 接口设计 vs §13 接口清单）
 - 术语一致性
 
 ### 4. 编号段分配

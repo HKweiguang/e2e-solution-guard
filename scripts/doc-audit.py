@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-doc-audit.py — 文档一致性审计工具（标准库 only）
+doc-audit.py — 产物一致性审计工具（标准库 only）
 
 用法:
   # 全量审计
@@ -9,7 +9,7 @@ doc-audit.py — 文档一致性审计工具（标准库 only）
   # 增量审计（仅检查变更的功能点/页面/章节）
   python3 scripts/doc-audit.py <doc_path> --type prd --upstream up1.md --delta <标识符列表>
 
-  # 扫描下游影响（输出受影响的下游文档清单）
+  # 扫描下游影响（输出受影响的下游产物清单）
   python3 scripts/doc-audit.py <doc_path> --type prd --scan-downstream ./docs/
 
 输出: 结构化 JSON，包含 mechanical_issues / semantic_hints / summary
@@ -358,7 +358,7 @@ class DocumentAuditor:
                 if upstream_found:
                     break
                 in_header = False
-            if "上游文档" in n.content:
+            if "上游产物" in n.content:
                 in_header = True
                 upstream_found = True
             if in_header:
@@ -377,7 +377,7 @@ class DocumentAuditor:
             return
         
         # 提取表格中的文档名
-        table = self._extract_table_after(r"上游文档")
+        table = self._extract_table_after(r"上游产物")
         if not table or len(table) < 2:
             self.add_issue(
                 "missing_upstream",
@@ -406,8 +406,53 @@ class DocumentAuditor:
                     "upstream_not_found",
                     "warning",
                     "文件头部",
-                    f"上游文档 '{doc_name}' 在当前目录或 --upstream 参数中未找到，请确认路径",
+                    f"上游产物 '{doc_name}' 在当前目录或 --upstream 参数中未找到，请确认路径",
                 )
+
+    def check_upstream_id_alignment(self, id_prefix: Optional[str] = None):
+        """检查上游产物中的关键编号是否在当前产物中有对应引用。
+        
+        当 --upstream 参数提供上游文件时，提取上游中的编号集合，与当前产物中的编号集合
+        做差集比对，报告上游有但当前产物中缺失的编号。
+        
+        Args:
+            id_prefix: 若提供，只比对该前缀的编号（如 "USER" 只比对 USER-001）。
+                      若未提供，比对上游中出现的所有编号前缀。
+        """
+        if not self.upstream_paths:
+            return
+        
+        # 收集上游编号
+        upstream_ids: Set[str] = set()
+        for up_path in self.upstream_paths:
+            if not up_path.exists():
+                continue
+            try:
+                up_text = up_path.read_text(encoding="utf-8")
+                upstream_ids |= extract_ids(up_text, prefix=id_prefix)
+            except Exception:
+                continue
+        
+        if not upstream_ids:
+            return
+        
+        # 收集当前产物编号
+        current_ids = extract_ids(self.raw_text, prefix=id_prefix)
+        
+        # 若设置了 delta_scope，只检查 delta_scope 中的编号
+        check_ids = upstream_ids
+        if self.delta_scope:
+            check_ids = upstream_ids & self.delta_scope
+        
+        missing = sorted(check_ids - current_ids)
+        if missing:
+            self.add_hint(
+                "upstream_id_missing",
+                "warning",
+                "跨产物对齐",
+                f"上游产物中定义的编号在当前产物中未出现: {', '.join(missing)}。"
+                f"请确认是否遗漏对应实现，或该编号确实不适用于本产物。",
+            )
 
     def check_error_code_format(self, text: str | None = None, error_prefixes: Optional[List[str]] = None):
         """检查错误码格式是否符合项目 PRD-顶层定义声明的格式。
@@ -417,7 +462,8 @@ class DocumentAuditor:
         if not text.strip() or not error_prefixes:
             return
         for prefix in error_prefixes:
-            codes = re.findall(rf"`?({prefix}\w+)`?", text)
+            # 要求前缀后接分隔符（- 或 _），避免 "ERR" 误匹配 "ERROR" 等普通单词
+            codes = re.findall(rf"`?({prefix}[-_][A-Z0-9_-]+)`?", text)
             for code in codes:
                 self.add_hint(
                     "error_code_found",
@@ -509,7 +555,7 @@ class DocumentAuditor:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 3. 按文档类型的专用审计器
+# 3. 按产物类型的专用审计器
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class PRDAuditor(DocumentAuditor):
@@ -608,7 +654,7 @@ class PRDAuditor(DocumentAuditor):
 
 
 class InteractionAuditor(DocumentAuditor):
-    """交互设计文档审计器"""
+    """交互设计产物审计器"""
 
     def run(self):
         # 文档级检查
@@ -637,7 +683,7 @@ class InteractionAuditor(DocumentAuditor):
                 self.add_issue(
                     "missing_page_sections",
                     "blocking",
-                    "交互设计文档",
+                    "交互设计产物",
                     "未检测到任何符合格式的页面章节（如 §1 PAGE-TICKET-001），请确认页面编号格式",
                 )
 
@@ -684,7 +730,7 @@ class InteractionAuditor(DocumentAuditor):
 
 
 class TechAuditor(DocumentAuditor):
-    """技术方案文档审计器"""
+    """技术方案产物审计器"""
 
     def run(self):
         self.check_required_sections([
@@ -928,10 +974,39 @@ ERROR_CODE_RE = r"[A-Z][A-Z_]*-[A-Z][A-Z_]*-\d+"
 # 4. 下游影响扫描器
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 编号提取工具（跨格式）
+# ═══════════════════════════════════════════════════════════════════════════════
+
+ID_RE = re.compile(r"[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)+-\d+")
+
+
+def extract_ids(text: str, prefix: Optional[str] = None) -> Set[str]:
+    """从文本中提取编号标识符（如 USER-001, PAGE-TICKET-001, ERR-AUTH-003）。
+    
+    Args:
+        text: 待扫描文本
+        prefix: 若提供，只返回以该前缀开头的编号（如 "USER" 匹配 USER-001 但不匹配 PAGE-001）
+    
+    Returns:
+        去重后的编号集合
+    """
+    ids = set(ID_RE.findall(text))
+    if prefix:
+        ids = {i for i in ids if i.startswith(prefix)}
+    return ids
+
+
 def scan_downstream(doc_path: Path, docs_dir: Path) -> List[dict]:
-    """扫描 docs_dir 下所有 Markdown 文件，找出引用了 doc_path 的下游文档。"""
+    """扫描 docs_dir 下所有 Markdown 和 HTML 产物，找出引用了 doc_path 的下游产物。
+    
+    对 Markdown 产物：检查 upstream-document 表格。
+    对 HTML 产物：检查 <!-- upstream: ... --> 注释。
+    """
     downstream: List[dict] = []
     target_name = doc_path.stem
+    
+    # ── 扫描 Markdown 产物 ──
     for md_file in docs_dir.rglob("*.md"):
         if md_file.resolve() == doc_path.resolve():
             continue
@@ -939,13 +1014,10 @@ def scan_downstream(doc_path: Path, docs_dir: Path) -> List[dict]:
             text = md_file.read_text(encoding="utf-8")
         except Exception:
             continue
-        # 检查 upstream-document 表格中是否出现 target_name
-        if "上游文档" in text:
-            # 优先在 upstream-document 表格区域内搜索，避免短文件名在正文误匹配
-            # 先安全过滤掉围栏代码块，避免代码块内的 # 注释被误认为 heading
+        if "上游产物" in text:
             text_no_code = re.sub(r"```[\s\S]*?```", "", text)
             upstream_match = re.search(
-                r"上游文档.*?(?=^#{1,3}\s|\Z)", text_no_code, re.MULTILINE | re.DOTALL
+                r"上游产物.*?(?=^#{1,3}\s|\Z)", text_no_code, re.MULTILINE | re.DOTALL
             )
             search_area = upstream_match.group(0) if upstream_match else text_no_code
             scope_match = re.search(
@@ -957,7 +1029,34 @@ def scan_downstream(doc_path: Path, docs_dir: Path) -> List[dict]:
                 downstream.append({
                     "path": str(md_file.relative_to(docs_dir)),
                     "scope": scope,
+                    "type": "markdown",
                 })
+    
+    # ── 扫描 HTML 产物 ──
+    for html_file in docs_dir.rglob("*.html"):
+        if html_file.resolve() == doc_path.resolve():
+            continue
+        try:
+            text = html_file.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        # 检查 <!-- upstream: ... --> 注释中是否出现 target_name
+        upstream_comments = re.findall(r"<!--\s*upstream:([^>]+)-->", text, re.IGNORECASE)
+        for comment in upstream_comments:
+            if target_name in comment:
+                # 提取 scope：upstream 注释中 target_name 后面的部分
+                scope_match = re.search(
+                    rf"{re.escape(target_name)}(?:\.md)?\s*,?\s*([^,\n]+)?",
+                    comment,
+                )
+                scope = scope_match.group(1).strip() if scope_match and scope_match.group(1) else "UI 设计"
+                downstream.append({
+                    "path": str(html_file.relative_to(docs_dir)),
+                    "scope": scope,
+                    "type": "html",
+                })
+                break  # 一个 HTML 文件只加一次
+    
     return downstream
 
 
@@ -1046,19 +1145,19 @@ AUDITOR_MAP = {
 
 
 def main():
-    parser = argparse.ArgumentParser(description="文档一致性审计工具")
-    parser.add_argument("doc_path", help="待审计文档路径")
+    parser = argparse.ArgumentParser(description="产物一致性审计工具")
+    parser.add_argument("doc_path", help="待审计产物路径")
     parser.add_argument(
         "--type",
         required=True,
         choices=list(AUDITOR_MAP.keys()),
-        help="文档类型",
+        help="产物类型",
     )
     parser.add_argument(
         "--upstream",
         nargs="*",
         default=[],
-        help="上游文档路径（可多个）",
+        help="上游产物路径（可多个）",
     )
     parser.add_argument(
         "--delta",
@@ -1076,6 +1175,12 @@ def main():
         nargs="*",
         default=[],
         help="项目术语表（用于术语一致性检查）",
+    )
+    parser.add_argument(
+        "--error-prefixes",
+        nargs="*",
+        default=[],
+        help="错误码前缀列表（如 ERR AUTH），用于验证错误码格式",
     )
     args = parser.parse_args()
 
@@ -1118,6 +1223,12 @@ def main():
     # 如提供了术语表，追加术语一致性检查
     if args.terms:
         auditor.check_term_consistency(args.terms)
+    # 如提供了错误码前缀，追加错误码格式检查
+    if args.error_prefixes:
+        auditor.check_error_code_format(error_prefixes=args.error_prefixes)
+    # 如提供了上游产物，追加跨产物编号对齐检查
+    if args.upstream:
+        auditor.check_upstream_id_alignment()
     report = auditor.report()
     print(json.dumps(report, ensure_ascii=False, indent=2))
     sys.exit(0 if report["passed"] else 1)
