@@ -974,8 +974,8 @@ class GlobalTechAuditor(DocumentAuditor):
         ])
         self.check_table_format()
 
-        # 检查 §5.2 统一响应结构包含 code/message/data/traceId/timestamp
-        sec25_text = self._section_text(r"§?5\.2.*响应结构|统一响应结构")
+        # 检查 2.5.2 统一响应结构包含 code/message/data/traceId/timestamp
+        sec25_text = self._section_text(r"2\.5\.2.*响应结构|统一响应结构")
         missing_fields = []
         for field in ("code", "message", "data", "traceId", "timestamp"):
             if field not in sec25_text:
@@ -1095,8 +1095,8 @@ class GlobalInteractionAuditor(DocumentAuditor):
         ])
         self.check_table_format()
 
-        # 检查 §3 交互状态规范包含 6 基础 + 4 异步状态
-        sec3_text = self._section_text(r"§?3\s+(?:交互状态|交互状态规范)")
+        # 检查 §2 交互状态规范包含 6 基础 + 4 异步状态
+        sec3_text = self._section_text(r"§?2\s+(?:交互状态|交互状态规范)")
         base_states = ["默认态", "悬停态", "按下态", "聚焦态", "禁用态", "加载态"]
         async_states = ["空状态", "错误状态", "成功状态", "骨架态"]
         missing_base = [s for s in base_states if s not in sec3_text]
@@ -1105,26 +1105,26 @@ class GlobalInteractionAuditor(DocumentAuditor):
             self.add_issue(
                 "interaction_state_incomplete",
                 "blocking",
-                "§3 交互状态规范",
+                "§2 交互状态规范",
                 f"缺少基础交互状态定义: {', '.join(missing_base)}",
             )
         if missing_async:
             self.add_issue(
                 "interaction_state_incomplete",
                 "blocking",
-                "§3 交互状态规范",
+                "§2 交互状态规范",
                 f"缺少异步/边界状态定义: {', '.join(missing_async)}",
             )
 
-        # 检查 §4 交互反馈规范包含四类反馈时效红线
-        sec4_text = self._section_text(r"§?4\s+(?:交互反馈|交互反馈规范)")
+        # 检查 §3 交互反馈规范包含四类反馈时效红线
+        sec4_text = self._section_text(r"§?3\s+(?:交互反馈|交互反馈规范)")
         feedback_types = ["点击响应", "弹窗出现", "页面切换", "异步提交"]
         missing_fb = [f for f in feedback_types if f not in sec4_text]
         if missing_fb:
             self.add_issue(
                 "feedback_redline_missing",
                 "warning",
-                "§4 交互反馈规范",
+                "§3 交互反馈规范",
                 f"建议包含反馈时效红线: {', '.join(missing_fb)}",
             )
 
