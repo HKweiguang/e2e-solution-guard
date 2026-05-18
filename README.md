@@ -62,7 +62,7 @@ e2e-solution-guard/
 │   ├── steps/                        # 各步骤模板
 │   │   ├── prd-step.md               # PRD 模板
 │   │   ├── interaction-step.md       # 交互设计模板
-│   │   ├── ui-step.md                # UI 设计模板（已弃用，v2.6 起模块级视觉规范并入交互设计）
+│   │   ├── ui-step.md                # UI 设计模板（产物：独立 HTML 文件）
 │   │   ├── tech-step.md              # 技术方案模板
 │   │   ├── test-step.md              # 测试报告模板
 │   │   └── code-audit-report.md      # 代码审计报告模板

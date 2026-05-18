@@ -87,7 +87,7 @@ e2e-solution-guard 的核心不是"写文档"，而是**管理从想法到代码
 |------|---------|-------------|
 | PRD | `references/steps/prd-step.md` | `references/top-level/prd-top-level-template.md` |
 | 交互设计 | `references/steps/interaction-step.md` | `references/top-level/interaction-top-level-template.md` |
-
+| UI 设计 | `references/steps/ui-step.md` | `references/top-level/ui-top-level-template.md` |
 | 技术方案 | `references/steps/tech-step.md` | `references/top-level/tech-top-level-template.md` |
 | 测试 | `references/steps/test-step.md` | — |
 | 代码审计 | `references/steps/code-audit-report.md` | — |
@@ -130,4 +130,4 @@ e2e-solution-guard 的核心不是"写文档"，而是**管理从想法到代码
 
 ---
 
-*Skill 版本：v2.6*
+*Skill 版本：v2.7*
