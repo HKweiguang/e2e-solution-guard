@@ -110,30 +110,31 @@
 **填写示例**：
 
 ```svg
+<!-- 以下 SVG 示例使用具体属性值仅为浏览器渲染所需，不代表最终产品视觉设计（颜色/字体/圆角由 UI 设计定义） -->
 <svg width="600" height="400" xmlns="http://www.w3.org/2000/svg">
   <!-- 侧边栏 -->
-  <rect x="0" y="0" width="160" height="400" fill="#f5f5f5" stroke="#d9d9d9" stroke-width="1"/>
-  <text x="10" y="30" font-family="sans-serif" font-size="14" fill="#666">Logo</text>
-  <text x="10" y="60" font-family="sans-serif" font-size="12" fill="#666">导航菜单</text>
-  <text x="10" y="80" font-family="sans-serif" font-size="12" fill="#666">· 工单管理</text>
-  <text x="10" y="100" font-family="sans-serif" font-size="12" fill="#666">· 客户管理</text>
+  <rect x="0" y="0" width="160" height="400" fill="#eee" stroke="#ccc"/>
+  <text x="10" y="30">Logo</text>
+  <text x="10" y="60">导航菜单</text>
+  <text x="10" y="80">· 工单管理</text>
+  <text x="10" y="100">· 客户管理</text>
 
   <!-- 顶部操作栏 -->
-  <rect x="160" y="0" width="440" height="56" fill="#fafafa" stroke="#d9d9d9" stroke-width="1"/>
-  <text x="180" y="35" font-family="sans-serif" font-size="16" fill="#333" font-weight="500">工单管理</text>
-  <rect x="520" y="16" width="60" height="28" fill="#fff" stroke="#d9d9d9" rx="4"/>
-  <text x="535" y="34" font-family="sans-serif" font-size="12" fill="#333">新建</text>
+  <rect x="160" y="0" width="440" height="56" fill="#f8f8f8" stroke="#ccc"/>
+  <text x="180" y="35">工单管理</text>
+  <rect x="520" y="16" width="60" height="28" fill="#fff" stroke="#ccc"/>
+  <text x="535" y="34">新建</text>
 
   <!-- 筛选区 -->
-  <rect x="180" y="76" width="400" height="48" fill="#fff" stroke="#d9d9d9" stroke-width="1" rx="4"/>
-  <text x="200" y="105" font-family="sans-serif" font-size="12" fill="#666">状态筛选 | 时间范围 | 优先级</text>
+  <rect x="180" y="76" width="400" height="48" fill="#fff" stroke="#ccc"/>
+  <text x="200" y="105">状态筛选 | 时间范围 | 优先级</text>
 
   <!-- 数据表格 -->
-  <rect x="180" y="140" width="400" height="240" fill="#fff" stroke="#d9d9d9" stroke-width="1" rx="4"/>
-  <text x="200" y="170" font-family="sans-serif" font-size="12" fill="#666">工单编号 | 客户姓名 | 状态 | 创建时间</text>
-  <line x1="200" y1="185" x2="560" y2="185" stroke="#f0f0f0"/>
-  <text x="200" y="210" font-family="sans-serif" font-size="12" fill="#333">T-2024-001 | 张三 | 待处理 | 2024-01-15</text>
-  <text x="200" y="240" font-family="sans-serif" font-size="12" fill="#333">T-2024-002 | 李四 | 处理中 | 2024-01-15</text>
+  <rect x="180" y="140" width="400" height="240" fill="#fff" stroke="#ccc"/>
+  <text x="200" y="170">工单编号 | 客户姓名 | 状态 | 创建时间</text>
+  <line x1="200" y1="185" x2="560" y2="185" stroke="#ddd"/>
+  <text x="200" y="210">T-2024-001 | 张三 | 待处理 | 2024-01-15</text>
+  <text x="200" y="240">T-2024-002 | 李四 | 处理中 | 2024-01-15</text>
 </svg>
 ```
 
@@ -314,20 +315,20 @@
 
 ### 4.7 与 PRD 对应
 
-**内容**：标注本模块所有交互页面对应的 PRD 功能点、页面编号、业务规则和错误码。
+**内容**：标注本模块所有交互页面对应的 PRD 功能点、页面名称、业务规则和错误码。
 
-**格式建议**：表格。列：交互页面 | PRD 页面编号 | 关联功能点 | PRD 业务规则 | PRD 错误码。
+**格式建议**：表格。列：交互页面 | PRD 页面名称 | 关联功能点 | PRD 业务规则 | PRD 错误码。
 
 **填写示例**：
 
-| 交互页面 | PRD 页面编号 | 关联功能点 | PRD 业务规则 | PRD 错误码 |
+| 交互页面 | PRD 页面名称 | 关联功能点 | PRD 业务规则 | PRD 错误码 |
 |---------|-------------|-----------|-------------|-----------|
-| 工单列表页 | PAGE-TICKET-001 | TICKET-001, TICKET-003 | RULE-TIMEOUT-001（超时提醒） | ERR-TICKET-001 |
+| 工单列表页 | 工单列表页（PRD §3 交互方式） | TICKET-001, TICKET-003 | RULE-TIMEOUT-001（超时提醒） | ERR-TICKET-001 |
 | 工单详情页 | PAGE-TICKET-002 | TICKET-001 | RULE-MASK-001（客户手机号脱敏） | ERR-TICKET-001, ERR-TICKET-003 |
 | 工单创建页 | PAGE-TICKET-003 | TICKET-002 | RULE-AUTO-001（工单自动分配） | ERR-TICKET-002, ERR-TICKET-003 |
 
 **常见陷阱**：
-- ❌ 交互页面与 PRD 页面编号不一致——导致需求追溯困难
+- ❌ 交互页面与 PRD 页面名称不对应——导致需求追溯困难
 - ❌ 遗漏 PRD 功能点——导致功能遗漏
 - ❌ 引用的错误码在 PRD 中不存在——文档不一致
 
@@ -344,7 +345,8 @@
 
 ### 5.2 页面编号
 
-- 使用 PRD 定义的页面编号（如 `PAGE-TICKET-001`, `PAGE-TICKET-002`）
+- 由交互设计分配正式页面编号（如 `PAGE-TICKET-001`），编号前缀与 PRD 功能编号保持一致
+- 页面名称参考 PRD §3 交互方式列中的描述
 - 章节标题中标注：`## §1 {页面编号} {页面名}`
 
 ### 5.3 状态引用
@@ -364,6 +366,7 @@
 - [ ] **语义一致性** `[模型]`：状态机中的业务状态与上游 PRD 状态值一致；异常场景覆盖上游 PRD 定义的错误码触发条件；组件状态矩阵与项目交互-顶层定义的状态规范一致
 - [ ] **内部自洽性** `[模型]`：本文档涉及的所有页面编号在「与 PRD 对应」子节中都有标注；状态机定义的状态值与异常处理中的触发条件不矛盾；同一流程中反馈方式与项目交互-顶层定义的反馈规范一致
 - [ ] **跨文档链路一致性** `[模型]`（如已有下游文档）：每个组件状态在下游 UI 设计中有对应 CSS/样式实现；每个异常场景引用的错误码在下游技术方案接口设计中有映射；页面流程中定义的每个页面跳转在下游技术方案接口设计中有对应接口支持
+- [ ] **边界一致性** `[模型]`：文档中无不属于交互范畴的视觉描述（颜色、色值、字体、阴影、圆角、精确像素值）
 
 ### 6.2 完整性检验
 
@@ -377,8 +380,8 @@
 - [ ] 每个页面的异常处理子节有触发条件、系统响应、用户感知、恢复路径 `[模型]`
 - [ ] 每个页面的异常处理覆盖至少 1 个场景，复杂页面覆盖 3 个 `[模型]`
 - [ ] 每个异常处理引用的错误码在上游 PRD 错误处理章节中真实存在 `[脚本]`
-- [ ] 每个交互页面都对应上游 PRD 中的一个功能点和一个页面编号 `[脚本]`
+- [ ] 每个交互页面都对应上游 PRD 中的一个功能点和一个页面名称 `[脚本]`
 - [ ] 所有跳转目标页面要么在本文档范围内，要么正确引用外部文档 `[脚本]`
 - [ ] §5.1 章节层级符合规范（无同级编号暗示子级的情况） `[脚本]`
-- [ ] §5.2 页面编号使用 PRD 定义的编号 `[脚本]`
+- [ ] §5.2 页面编号由交互设计分配，前缀与 PRD 功能编号一致 `[脚本]`
 - [ ] §5.3 状态名称与项目交互-顶层定义 §3（交互状态规范）一致，业务状态名称与项目 PRD-顶层定义 §5（状态值）一致 `[脚本]`

@@ -35,7 +35,9 @@
 <head>
   <!-- upstream: 交互设计-{页面组}.md, 项目 UI-顶层定义.md -->
   <style>
-    :root { --primary: #1890ff; --text-primary: rgba(0,0,0,0.88); }
+    :root {
+      /* CSS 变量来自项目 UI-顶层定义，如 --primary、--text-primary 等 */
+    }
     .btn { background: var(--primary); }
     .btn:hover { opacity: 0.8; }
     /* 状态样式: hover / active / focus / disabled / loading */
@@ -106,3 +108,4 @@
 - [ ] 加载态保留了上下文（非全白屏）
 - [ ] 响应式断点与项目 UI-顶层定义一致
 - [ ] 每个组件状态类名在下游技术方案中有对应引用（前端组件库选型、样式实现方案）
+- [ ] **边界一致性** `[模型]`：文档中无不属于 UI 范畴的行为描述（触发条件、交互流程、页面跳转、状态流转、校验规则）
