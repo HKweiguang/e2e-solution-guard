@@ -662,6 +662,22 @@ class InteractionAuditor(DocumentAuditor):
                     f"页面 {page_id} 的页面结构子节缺少 SVG 线框图",
                 )
 
+        # 边界检查：交互设计不写视觉
+        # 在页面章节中搜索硬编码色值（排除 SVG 代码块）
+        for sec in page_sections:
+            # 简单移除 SVG 代码块，避免误报 SVG 渲染属性
+            sec_without_svg = re.sub(r"<svg[\s\S]*?</svg>", "", sec)
+            if re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\s*\(", sec_without_svg):
+                pm = re.search(r"([A-Z]+-[A-Z]+-\d+)", sec)
+                page_id = pm.group(1) if pm else "未知页面"
+                self.add_hint(
+                    "visual_in_interaction",
+                    "warning",
+                    f"{page_id} 边界检查",
+                    f"页面 {page_id} 中发现硬编码色值（如 #RRGGBB 或 rgba()），交互设计应只定义结构和行为，视觉描述应移至 UI 设计",
+                )
+                break  # 只报一次，避免重复
+
         # 页面编号格式由项目自定义，不硬编码连续性检查
         self.check_table_format()
         self.check_upstream_references()
@@ -817,6 +833,28 @@ class UIAuditor(DocumentAuditor):
                     "blocking",
                     "HTML 原型",
                     "HTML 原型包含数据请求逻辑（fetch/XMLHttpRequest/axios），UI 原型应使用静态假数据",
+                )
+
+            # 边界检查：UI 设计不写行为
+            behavior_patterns = [
+                r"\bonclick\s*=",
+                r"\bonsubmit\s*=",
+                r"\bonchange\s*=",
+                r"<form[^>]*\baction\s*=",
+                r"<a[^>]*\bhref\s*=\s*['\"][^#'\"]",
+                r"\blocation\.href\b",
+                r"\bwindow\.open\b",
+            ]
+            found_behaviors = []
+            for bp in behavior_patterns:
+                if re.search(bp, html_text):
+                    found_behaviors.append(bp)
+            if found_behaviors:
+                self.add_hint(
+                    "behavior_in_ui",
+                    "warning",
+                    "HTML 原型",
+                    "HTML 原型中包含行为事件（onclick/onsubmit/onchange）或跳转逻辑（href/action），UI 设计应只写视觉，行为规则应移至交互设计",
                 )
 
         # 检查"与交互设计对应"表格
