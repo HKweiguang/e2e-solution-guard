@@ -610,6 +610,10 @@ class PRDAuditor(DocumentAuditor):
                         f"功能点 {fid} 在 §6/§7/§8 中未被引用，请确认是否有遗漏章节",
                     )
 
+        # §3 功能编号重复检查
+        if sec3_first_col.strip():
+            self.check_duplicate_numbers("", "§3 功能需求", sec3_first_col)
+
         # §7 每个错误码在 §6 中有对应触发场景
         # 从 sec7 中提取反引号包裹的候选错误码，过滤掉字段名、状态值等非错误码内容
         err_codes = re.findall(rf"`({ERROR_CODE_RE})`", sec7_text)
@@ -978,7 +982,7 @@ ERROR_CODE_RE = r"[A-Z][A-Z_]*-[A-Z][A-Z_]*-\d+"
 # 编号提取工具（跨格式）
 # ═══════════════════════════════════════════════════════════════════════════════
 
-ID_RE = re.compile(r"[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)+-\d+")
+ID_RE = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z][A-Za-z0-9]*)+-\d+")
 
 
 def extract_ids(text: str, prefix: Optional[str] = None) -> Set[str]:
@@ -989,11 +993,14 @@ def extract_ids(text: str, prefix: Optional[str] = None) -> Set[str]:
         prefix: 若提供，只返回以该前缀开头的编号（如 "USER" 匹配 USER-001 但不匹配 PAGE-001）
     
     Returns:
-        去重后的编号集合
+        去重后的编号集合（统一大写）
     """
     ids = set(ID_RE.findall(text))
+    # 统一大写，避免 page-user-001 与 PAGE-USER-001 被视为不同编号
+    ids = {i.upper() for i in ids}
     if prefix:
-        ids = {i for i in ids if i.startswith(prefix)}
+        p = prefix.upper()
+        ids = {i for i in ids if i.startswith(p)}
     return ids
 
 
