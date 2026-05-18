@@ -137,7 +137,7 @@ e2e-solution-guard/
       └──────────────┬──────────────┘
                      ▼ API调用
             ┌──────────────────┐
-            │   后端代码仓库    │
+            │   后端代码仓库   │
             │  ┌────────────┐  │
             │  │ 统一服务   │  │
             │  │ (Go/Java)  │  │
@@ -233,10 +233,10 @@ docs/
 python3 scripts/doc-audit.py prd-c端.md --type prd
 
 # 增量审计（只检查变更的功能点）
-python3 scripts/doc-audit.py PRD.md --type prd --delta ORDER-CUST-001,ORDER-CUST-003
+python3 scripts/doc-audit.py prd-c端.md --type prd --delta ORDER-CUST-001,ORDER-CUST-003
 
 # 扫描下游影响
-python3 scripts/doc-audit.py PRD.md --type prd --scan-downstream ./docs/
+python3 scripts/doc-audit.py prd-c端.md --type prd --scan-downstream ./docs/
 ```
 
 审计覆盖：
