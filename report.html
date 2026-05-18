@@ -8,503 +8,400 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            line-height: 1.7;
-            color: #333;
-            background: #f5f7fa;
+            line-height: 1.8;
+            color: #1a202c;
+            background: #f7fafc;
         }
         .container {
-            max-width: 900px;
+            max-width: 880px;
             margin: 0 auto;
-            padding: 40px 20px;
+            padding: 48px 24px;
         }
         header {
-            text-align: center;
-            padding: 60px 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border-radius: 16px;
+            padding: 48px 0 32px;
+            border-bottom: 2px solid #e2e8f0;
             margin-bottom: 40px;
-            box-shadow: 0 10px 40px rgba(102, 126, 234, 0.3);
         }
         header h1 {
-            font-size: 2.5em;
-            margin-bottom: 12px;
+            font-size: 2em;
             font-weight: 700;
+            color: #1a202c;
+            margin-bottom: 8px;
         }
-        header p {
-            font-size: 1.2em;
-            opacity: 0.95;
-            max-width: 600px;
-            margin: 0 auto;
+        header .meta {
+            color: #718096;
+            font-size: 0.95em;
         }
         .section {
-            background: white;
-            border-radius: 12px;
-            padding: 40px;
-            margin-bottom: 30px;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+            margin-bottom: 48px;
         }
         .section h2 {
-            font-size: 1.8em;
+            font-size: 1.5em;
             color: #2d3748;
             margin-bottom: 20px;
-            padding-bottom: 12px;
-            border-bottom: 3px solid #667eea;
-            display: inline-block;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #e2e8f0;
         }
         .section h3 {
-            font-size: 1.3em;
-            color: #4a5568;
-            margin: 28px 0 14px 0;
-        }
-        .highlight-box {
-            background: #f0f4ff;
-            border-left: 4px solid #667eea;
-            padding: 20px 24px;
-            border-radius: 0 8px 8px 0;
-            margin: 20px 0;
-            font-size: 1.05em;
-        }
-        .mechanism-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-            gap: 20px;
-            margin-top: 24px;
-        }
-        .mechanism-card {
-            background: #fafbfc;
-            border: 1px solid #e2e8f0;
-            border-radius: 10px;
-            padding: 24px;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        .mechanism-card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 24px rgba(0,0,0,0.08);
-        }
-        .mechanism-card .icon {
-            font-size: 2em;
-            margin-bottom: 12px;
-        }
-        .mechanism-card h4 {
-            color: #2d3748;
             font-size: 1.15em;
-            margin-bottom: 10px;
+            color: #4a5568;
+            margin: 28px 0 12px;
         }
-        .mechanism-card p {
-            color: #64748b;
-            font-size: 0.95em;
-            line-height: 1.6;
-        }
-        .pros-cons {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 24px;
-            margin-top: 20px;
-        }
-        @media (max-width: 640px) {
-            .pros-cons { grid-template-columns: 1fr; }
-            header h1 { font-size: 1.8em; }
-        }
-        .pros, .cons {
-            padding: 24px;
-            border-radius: 10px;
-        }
-        .pros {
-            background: #f0fdf4;
-            border: 1px solid #bbf7d0;
-        }
-        .cons {
-            background: #fef2f2;
-            border: 1px solid #fecaca;
-        }
-        .pros h4 {
-            color: #166534;
-            font-size: 1.2em;
-            margin-bottom: 14px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .cons h4 {
-            color: #991b1b;
-            font-size: 1.2em;
-            margin-bottom: 14px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .pros ul, .cons ul {
-            list-style: none;
-            padding: 0;
-        }
-        .pros li, .cons li {
-            padding: 8px 0;
-            padding-left: 28px;
-            position: relative;
-            line-height: 1.6;
-        }
-        .pros li::before {
-            content: "✓";
-            position: absolute;
-            left: 0;
-            color: #22c55e;
-            font-weight: bold;
-        }
-        .cons li::before {
-            content: "!";
-            position: absolute;
-            left: 0;
-            color: #ef4444;
-            font-weight: bold;
-            width: 20px;
-            text-align: center;
-        }
-        .benefit-list {
-            margin-top: 20px;
-        }
-        .benefit-item {
-            display: flex;
-            align-items: flex-start;
-            gap: 18px;
-            padding: 20px;
-            background: #f8fafc;
-            border-radius: 10px;
-            margin-bottom: 16px;
-            border: 1px solid #e2e8f0;
-        }
-        .benefit-item .num {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-            font-size: 1.1em;
-            flex-shrink: 0;
-        }
-        .benefit-item h4 {
-            color: #2d3748;
-            margin-bottom: 6px;
-            font-size: 1.1em;
-        }
-        .benefit-item p {
-            color: #64748b;
-            font-size: 0.95em;
-        }
-        .flow-diagram {
-            background: #f8fafc;
-            border-radius: 10px;
-            padding: 30px;
-            margin: 24px 0;
-            text-align: center;
-            border: 1px dashed #cbd5e1;
-        }
-        .flow-steps {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 8px;
-            font-size: 0.95em;
-        }
-        .flow-step {
-            background: white;
-            border: 2px solid #667eea;
-            color: #667eea;
-            padding: 10px 18px;
-            border-radius: 24px;
+        .section h4 {
+            font-size: 1em;
+            color: #4a5568;
+            margin: 20px 0 10px;
             font-weight: 600;
         }
-        .flow-arrow {
-            color: #94a3b8;
-            font-size: 1.4em;
+        .section p {
+            margin-bottom: 14px;
+            color: #4a5568;
         }
-        .flow-return {
-            width: 100%;
-            margin-top: 12px;
-            color: #ef4444;
+        .section ul, .section ol {
+            margin: 12px 0 12px 24px;
+            color: #4a5568;
+        }
+        .section li {
+            margin-bottom: 8px;
+        }
+        .section code {
+            background: #edf2f7;
+            padding: 2px 6px;
+            border-radius: 4px;
             font-size: 0.9em;
-            font-style: italic;
+            color: #2d3748;
+        }
+        .highlight-box {
+            background: #f7fafc;
+            border-left: 3px solid #4a5568;
+            padding: 16px 20px;
+            margin: 16px 0;
+            font-size: 0.95em;
+        }
+        .diagram {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 24px;
+            margin: 20px 0;
+            overflow-x: auto;
+        }
+        .diagram pre {
+            font-family: "SF Mono", Monaco, monospace;
+            font-size: 0.85em;
+            line-height: 1.6;
+            color: #2d3748;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+            font-size: 0.95em;
+        }
+        th, td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        th {
+            background: #f7fafc;
+            font-weight: 600;
+            color: #2d3748;
+        }
+        td {
+            color: #4a5568;
         }
         .tag {
             display: inline-block;
-            background: #e0e7ff;
-            color: #4338ca;
-            padding: 4px 12px;
-            border-radius: 12px;
+            background: #edf2f7;
+            color: #4a5568;
+            padding: 2px 10px;
+            border-radius: 4px;
             font-size: 0.85em;
-            font-weight: 500;
-            margin: 4px 4px 4px 0;
+            margin: 2px 4px 2px 0;
         }
         footer {
+            margin-top: 64px;
+            padding-top: 24px;
+            border-top: 1px solid #e2e8f0;
+            color: #a0aec0;
+            font-size: 0.9em;
             text-align: center;
-            padding: 30px;
-            color: #94a3b8;
-            font-size: 0.9em;
-        }
-        .summary-box {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border-radius: 12px;
-            padding: 32px;
-            margin-top: 20px;
-        }
-        .summary-box h3 {
-            color: white;
-            margin-top: 0;
-            font-size: 1.4em;
-        }
-        .summary-box p {
-            opacity: 0.95;
-            margin-top: 10px;
-        }
-        .product-line-box {
-            background: #fafbfc;
-            border: 2px solid #e2e8f0;
-            border-radius: 12px;
-            padding: 24px;
-            margin: 16px 0;
-        }
-        .product-line-box h4 {
-            color: #4338ca;
-            margin-bottom: 12px;
-            font-size: 1.1em;
-        }
-        .product-line-box code {
-            background: #f1f5f9;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 0.9em;
-        }
-        .joint-layer {
-            background: #fff7ed;
-            border: 2px dashed #fdba74;
-            border-radius: 10px;
-            padding: 20px;
-            margin: 16px 0;
-        }
-        .joint-layer h4 {
-            color: #c2410c;
-            margin-bottom: 10px;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>🛡️ e2e-solution-guard</h1>
-            <p>从"拍脑袋需求"到"代码落地"的全链路守护者——用可追溯的产物依赖网络，把变更失控扼杀在摇篮里</p>
+            <h1>e2e-solution-guard 机制解析报告</h1>
+            <div class="meta">端到端产物一致性管理系统 &middot; 从想法到代码的链路约束机制</div>
         </header>
 
         <div class="section">
-            <h2>📌 一句话概括</h2>
+            <h2>1. 系统定位</h2>
+            <p>e2e-solution-guard 是一套面向软件工程全流程的产物一致性管理系统。其核心目标并非生成文档模板，而是建立并维护一条<strong>从想法到代码的可追溯链路</strong>，确保链路中的每一个事实（功能定义、交互规则、视觉规范、技术实现、验证标准）在各环节之间保持对齐，防止因信息传递失真或变更不同步导致的工程失控。</p>
+
+            <p>该系统适用于以下场景：</p>
+            <ul>
+                <li>中大型软件项目，涉及多人、多角色协作</li>
+                <li>需求变更频繁，需要评估变更影响范围的业务</li>
+                <li>多端/多产物线项目（如同时面向 C 端用户、管理后台运营人员、车载系统等）</li>
+                <li>对产物一致性和可维护性有明确要求的长期项目</li>
+            </ul>
+        </div>
+
+        <div class="section">
+            <h2>2. 核心理念</h2>
+
+            <h3>2.1 产物依赖网络</h3>
+            <p>系统将软件工程过程抽象为一个有向无环图（DAG），节点为各阶段产物，边为依赖关系。每一份产物必须通过文件头部的 <code>upstream-document</code> 表格显式声明其上游输入。依赖关系构成一个可遍历的网络，使得：</p>
+            <ul>
+                <li>修改上游产物时，可以分层扫描所有下游产物，评估影响范围</li>
+                <li>修改下游产物时，可以逐条比对是否超出上游定义范围</li>
+                <li>任何代码实现都可以追溯到最初的功能定义来源</li>
+            </ul>
+
+            <h3>2.2 边界控制</h3>
+            <p>系统对每一份产物划定明确的职责边界，并通过审计机制强制执行：</p>
+            <ul>
+                <li><strong>交互设计</strong> = 结构（SVG 线框图）+ 行为（状态名、触发条件、交互响应、力学约束）。禁止写入视觉属性（颜色、色值、字体、阴影、圆角、精确像素值）。</li>
+                <li><strong>UI 设计</strong> = 视觉（颜色、尺寸、间距、阴影、圆角、字体）+ 显式状态映射表（交互状态 → CSS 类/伪类 → Token 变量 → 技术方案引用）。禁止写入行为（触发条件、交互流程、页面跳转、状态流转、校验规则）。</li>
+                <li><strong>技术方案</strong> = 实现方案（架构、接口、数据模型、状态机、异常处理）。禁止写入需求定义或视觉规范。</li>
+            </ul>
+
+            <h3>2.3 产物线拆分</h3>
+            <p>当项目面向多个异构用户群体时（如 C 端消费者、管理后台运营人员、车载系统驾驶员），系统支持按<strong>产物线</strong>（Product Line）拆分产物链。同一业务域在不同产物线中可能具有完全不同的功能集、交互范式和视觉规范。每条产物线拥有独立的产物链（PRD → 交互设计 → UI 设计 → 技术方案 → 测试报告），顶层定义按产物线划分章节，新增产物线不影响已有产物线的规范。</p>
+
+            <div class="diagram">
+                <pre>项目级顶层定义（所有产物线共享）
+├── 项目 PRD-顶层定义（模块划分、术语表、编码规则）
+├── 项目交互-顶层定义（状态规范、反馈规范、各产物线交互规范）
+├── 项目 UI-顶层定义（Token 体系、组件库、各产物线视觉规范）
+└── 项目技术-顶层定义（技术栈、公共表、接口约定）
+         │
+         ▲ upstream（所有模块级产物引用）
+         │
+模块级产物链（按产物线独立，按模块拆分）
+
+C 端产物线          管理后台产物线        车载端产物线
+用户管理-PRD        用户管理-PRD          用户管理-PRD
+    ↓                   ↓                     ↓
+用户管理-交互        用户管理-交互          用户管理-交互
+    ↓                   ↓                     ↓
+用户管理-UI.html     用户管理-UI.html       用户管理-UI.html
+    ↓                   ↓                     ↓
+用户管理-技术        用户管理-技术          用户管理-技术
+    ↓                   ↓                     ↓
+用户管理-测试        用户管理-测试          用户管理-测试</pre>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>3. 产物体系</h2>
+
+            <h3>3.1 产物类型与形式</h3>
+            <table>
+                <tr>
+                    <th>产物类型</th>
+                    <th>文件形式</th>
+                    <th>核心职责</th>
+                    <th>边界</th>
+                </tr>
+                <tr>
+                    <td>PRD</td>
+                    <td>Markdown</td>
+                    <td>定义"做什么"：功能需求、业务规则、数据模型、错误处理、验收标准</td>
+                    <td>不写实现方案、不写视觉规范</td>
+                </tr>
+                <tr>
+                    <td>交互设计</td>
+                    <td>Markdown（含 SVG 线框图）</td>
+                    <td>定义骨架：页面结构、组件状态矩阵、状态机、页面流程、异常处理、力学约束</td>
+                    <td>不写视觉属性</td>
+                </tr>
+                <tr>
+                    <td>UI 设计</td>
+                    <td>独立 HTML 文件</td>
+                    <td>定义血肉：视觉实现、显式状态映射表、CSS 变量、响应式结构</td>
+                    <td>不写行为、无 JS 业务逻辑</td>
+                </tr>
+                <tr>
+                    <td>技术方案</td>
+                    <td>Markdown</td>
+                    <td>定义"怎么做"：技术决策、架构、接口、数据模型、状态机实现、异常处理</td>
+                    <td>不写需求、不写视觉</td>
+                </tr>
+                <tr>
+                    <td>测试报告</td>
+                    <td>Markdown</td>
+                    <td>定义验证方案：测试用例、覆盖检查、缺陷汇总、测试结论</td>
+                    <td>不写需求、不写实现</td>
+                </tr>
+            </table>
+
+            <h3>3.2 关节层</h3>
+            <p>骨架（交互设计）与血肉（UI 设计）之间的映射关系，传统模式下隐式散落在 HTML 代码中，由开发人员自行推断。该系统要求将映射关系显式声明为产物的一部分：</p>
+            <ul>
+                <li><strong>状态映射表</strong>：每页一张表格，列：交互状态 | CSS 类/伪类 | Token 变量 | 技术方案引用。确保交互设计中的"禁用态"与 UI 设计中的 <code>.disabled</code> 和 <code>--color-disabled</code> 之间有明确的一一对应关系。</li>
+                <li><strong>力学约束</strong>：在交互设计的组件交互表格中增设"力学约束"列，记录超时时间、重试次数、防抖间隔等用户感知层面的技术约束。这些约束需在技术方案中有对应实现。</li>
+                <li><strong>响应式适配</strong>：在交互设计中增设可选的"响应式适配"子节，声明断点下的结构变更（元素增减、布局变化），将结构变更的决策权从 UI 设计回收到交互设计。</li>
+            </ul>
+        </div>
+
+        <div class="section">
+            <h2>4. 引用机制</h2>
+
+            <h3>4.1 上游声明</h3>
+            <p>每一份产物文件头部必须包含 <code>upstream-document</code> 表格，声明引用的上游产物名称、类型和引用范围。Markdown 产物使用表格形式；HTML 产物使用 <code>&lt;!-- upstream: ... --&gt;</code> 注释形式。</p>
+
             <div class="highlight-box">
-                这不是一个"写文档工具"，而是一个<strong>事实管理器</strong>。它管理从想法到代码的完整链路中的一切事实：任何想法必须经过评估，任何变更必须同步到所有相关产物，任何代码必须与约定保持一致。
+                <strong>示例</strong>（Markdown 产物）：<br><br>
+                <code>| 产物 | 类型 | 引用范围 |</code><br>
+                <code>|------|------|---------|</code><br>
+                <code>| 用户管理-PRD.md | PRD | USER-001~USER-003 |</code><br>
+                <code>| 项目交互-顶层定义.md | 规范继承 | §3 状态规范、§5 C端交互规范 |</code>
             </div>
+
+            <h3>4.2 双向引用完整性</h3>
+            <p>系统通过一致性硬规则强制维护双向引用的完整性：</p>
+            <ul>
+                <li>PRD 中的功能点必须在交互设计的「与 PRD 对应」子节中有对应页面或组件引用</li>
+                <li>交互设计中的每个组件状态必须在 UI 设计的 HTML 原型中有对应 CSS 状态样式</li>
+                <li>UI 设计中的每个组件和状态类必须在技术方案前端实现中有对应引用</li>
+                <li>技术方案接口清单章节必须与接口设计章节逐个接口一一对应</li>
+                <li>测试报告中的每个验收标准必须在对应测试用例中有覆盖</li>
+            </ul>
         </div>
 
         <div class="section">
-            <h2>⚙️ 主要机制（通俗版）</h2>
-            
-            <h3>1. 产物形式</h3>
-            <div style="margin: 16px 0;">
-                <span class="tag">PRD → Markdown</span>
-                <span class="tag">交互设计 → Markdown（含 SVG 线框图）</span>
-                <span class="tag">UI 设计 → 独立 HTML 文件</span>
-                <span class="tag">技术方案 → Markdown</span>
-                <span class="tag">测试报告 → Markdown</span>
-            </div>
-            <p style="color:#64748b; font-size:0.95em;">UI 设计产物是独立 HTML 文件，不是 Markdown 中的代码块。所有产物通过文件头部的 <code>upstream-document</code> 表格建立引用关系。</p>
+            <h2>5. 审计体系</h2>
 
-            <h3>2. 全链路流水线（按产物线拆分）</h3>
-            <div class="flow-diagram">
-                <div class="flow-steps">
-                    <span class="flow-step">💡 想法/需求</span>
-                    <span class="flow-arrow">→</span>
-                    <span class="flow-step">📋 PRD</span>
-                    <span class="flow-arrow">→</span>
-                    <span class="flow-step">🎨 交互设计</span>
-                    <span class="flow-arrow">→</span>
-                    <span class="flow-step">🖌️ UI 设计</span>
-                    <span class="flow-arrow">→</span>
-                    <span class="flow-step">⚡ 技术方案</span>
-                    <span class="flow-arrow">→</span>
-                    <span class="flow-step">🧪 测试</span>
-                    <span class="flow-arrow">→</span>
-                    <span class="flow-step">💻 代码</span>
-                </div>
-                <div class="flow-return">
-                    ↺ 发现问题？随时回改上游，并自动级联同步到所有下游产物
-                </div>
-            </div>
+            <h3>5.1 三层审计模型</h3>
+            <table>
+                <tr>
+                    <th>审计层</th>
+                    <th>执行方</th>
+                    <th>检查内容</th>
+                    <th>输出</th>
+                </tr>
+                <tr>
+                    <td>Mechanical</td>
+                    <td>脚本自动化</td>
+                    <td>编号连续性、upstream 存在性、表格格式、接口清单一致性、HTML 结构完整性、跨产物编号对齐</td>
+                    <td>结构化 JSON（blocking / warning / hint）</td>
+                </tr>
+                <tr>
+                    <td>Semantic</td>
+                    <td>模型/人工</td>
+                    <td>功能与用户故事对应、业务规则一致性、状态机与 PRD 对齐、术语一致性、边界一致性</td>
+                    <td>审计报告（含证据引用和建议修正方向）</td>
+                </tr>
+                <tr>
+                    <td>Code Verification</td>
+                    <td>只读 subagent</td>
+                    <td>代码与技术方案/PRD 的一致性对比</td>
+                    <td>差异清单（代码原文 vs 产物原文）</td>
+                </tr>
+            </table>
 
-            <div class="product-line-box">
-                <h4>📦 产物线拆分</h4>
-                <p style="color:#64748b; font-size:0.95em; margin-bottom:12px;">同一条业务线在不同产物线中功能不同。例如"用户管理"：</p>
-                <ul style="color:#334155; padding-left:20px; line-height:1.8;">
-                    <li><strong>C 端</strong>（App/Web/小程序）：用户注册、登录、编辑资料</li>
-                    <li><strong>管理后台</strong>：表格操作、权限分配、批量禁用、数据导出</li>
-                    <li><strong>车载端</strong>：人脸识别登录、语音控制、极简交互</li>
-                    <li><strong>手表端</strong>：信息查看、通知接收、旋转表冠操作</li>
-                </ul>
-                <p style="color:#64748b; font-size:0.95em; margin-top:10px;">每条产物线有独立的产物链（PRD→交互→UI→技术→测试），变更互不影响。</p>
-            </div>
+            <h3>5.2 自动化审计能力矩阵</h3>
+            <p><code>doc-audit.py</code> 为标准库 only 的审计脚本，支持 9 种审计类型：</p>
+            <table>
+                <tr>
+                    <th>审计类型</th>
+                    <th>检查范围</th>
+                </tr>
+                <tr>
+                    <td><code>prd</code></td>
+                    <td>必填章节、功能编号重复、§3→§6/§7/§8 引用一致性、验收标准关联、错误码触发场景</td>
+                </tr>
+                <tr>
+                    <td><code>interaction</code></td>
+                    <td>页面章节格式、6 个必含子节、SVG 线框图、硬编码色值边界、力学约束列、响应式适配</td>
+                </tr>
+                <tr>
+                    <td><code>ui</code></td>
+                    <td>HTML 完整性（DOCTYPE/upstream/CSS 变量）、硬编码色值、状态样式完整性、JS 业务逻辑、行为事件、状态映射表注释</td>
+                </tr>
+                <tr>
+                    <td><code>tech</code></td>
+                    <td>必填章节、§4 与 §13 接口一一对应、异常场景映射、错误码格式（--error-prefixes）</td>
+                </tr>
+                <tr>
+                    <td><code>test</code></td>
+                    <td>必填章节、验收标准覆盖、术语一致性</td>
+                </tr>
+                <tr>
+                    <td><code>global-*</code></td>
+                    <td>顶层定义的必填章节、Token 层级、状态规范、组件库分类</td>
+                </tr>
+            </table>
 
-            <h3>3. 骨架 + 血肉 + 关节</h3>
-            <div class="joint-layer">
-                <h4>🔧 关节层（v2.8 新增）</h4>
-                <p style="color:#64748b; font-size:0.95em;">骨架（交互设计）和血肉（UI 顶层定义）之间的连接方式，以前隐式散落在代码中，现在显式声明：</p>
-                <ul style="color:#334155; padding-left:20px; line-height:1.8; margin-top:10px;">
-                    <li><strong>状态映射表</strong>：交互状态 → CSS 类/伪类 → Token 变量 → 技术方案引用</li>
-                    <li><strong>力学约束</strong>：超时时间、重试次数、防抖间隔（写在交互设计中）</li>
-                    <li><strong>响应式适配</strong>：断点下的结构变更（元素增减、布局变化）</li>
-                </ul>
-            </div>
-
-            <h3>4. 四大核心机制</h3>
-            <div class="mechanism-grid">
-                <div class="mechanism-card">
-                    <div class="icon">🔍</div>
-                    <h4>Gap 分析（事前评估）</h4>
-                    <p>动手写方案之前，先问自己：现有方案是什么？缺什么信息？会不会和已有的冲突？把问题列清楚再问用户，而不是直接开干。</p>
-                </div>
-                <div class="mechanism-card">
-                    <div class="icon">🔗</div>
-                    <h4>上下游追踪（变更不遗漏）</h4>
-                    <p>每份产物开头必须写明"我引用了哪些上游产物"。改上游时自动扫描所有下游，支持 Markdown 和 HTML 格式。要么一起改，要么标注"待同步"，禁止留不一致。</p>
-                </div>
-                <div class="mechanism-card">
-                    <div class="icon">🤖</div>
-                    <h4>自动审计（机械检查）</h4>
-                    <p>内置 <code>doc-audit.py</code> 脚本，标准库 only，支持 9 种审计类型。自动检查编号连续性、双向引用、术语一致性、跨产物编号对齐、HTML 完整性（CSS 变量、状态样式、upstream 注释）、边界违规（交互写视觉 / UI 写行为）等。</p>
-                </div>
-                <div class="mechanism-card">
-                    <div class="icon">🚫</div>
-                    <h4>红线拦截（防擅自扩展）</h4>
-                    <p>下游产物的功能范围、页面、状态值、错误码等，必须在上游有定义。想扩展？先改上游，否则直接叫停。交互设计不写视觉，UI 设计不写行为。</p>
-                </div>
-            </div>
-
-            <h3>5. 五个"禁止"行为准则</h3>
-            <div style="margin-top:16px;">
-                <span class="tag">禁止脑补</span>
-                <span class="tag">禁止过度复杂化</span>
-                <span class="tag">禁止模糊继续</span>
-                <span class="tag">禁止缺前置定义继续</span>
-                <span class="tag">禁止批量输出</span>
-            </div>
-            <p style="color:#64748b; margin-top:14px;">翻译成人话：<strong>没搞清楚就不动手，一步一步来，别自作聪明加需求。</strong></p>
+            <h3>5.3 跨产物对齐</h3>
+            <p>当 <code>--upstream</code> 参数提供上游产物时，脚本自动提取上游编号集合（如 <code>USER-001</code>、<code>PAGE-TICKET-001</code>），与当前产物中的编号集合做差集比对，报告缺失项。编号提取器支持大小写不敏感匹配，可处理 Markdown 大写编号与 HTML 小写 section id 的跨格式对齐。</p>
         </div>
 
         <div class="section">
-            <h2>👍 优点 vs 👎 缺点</h2>
-            <div class="pros-cons">
-                <div class="pros">
-                    <h4>👍 优点</h4>
-                    <ul>
-                        <li><strong>需求不丢：</strong>改了 PRD 会自动提醒改技术方案和测试用例，告别"需求改了代码没改"</li>
-                        <li><strong>口径一致：</strong>术语、错误码、状态值全项目统一，减少沟通成本</li>
-                        <li><strong>质量兜底：</strong>自动审计抓低级错误（编号重复、上游缺失、跨产物编号不对齐），人工专注业务逻辑</li>
-                        <li><strong>关节显式：</strong>状态映射表让"交互状态 → CSS 类 → Token"的关系不再隐式散落，新人能快速理解</li>
-                        <li><strong>多端可控：</strong>按产物线拆分后，C 端、管理后台、车载端的变更互不影响</li>
-                        <li><strong>可追溯：</strong>任何代码都能找到对应的需求来源，排查问题有依据</li>
-                    </ul>
-                </div>
-                <div class="cons">
-                    <h4>👎 缺点与代价</h4>
-                    <ul>
-                        <li><strong>前期重：</strong>小需求也要走评估和产物流程，对"快点上线"的急性子不友好</li>
-                        <li><strong>维护成本：</strong>产物网络需要持续维护，项目忙时容易沦为形式主义</li>
-                        <li><strong>学习曲线：</strong>需要理解上下游关系、产物线拆分、模板规范，团队需要培训</li>
-                        <li><strong>过度防御：</strong>"遇冲突必停"可能导致简单需求被过度分析</li>
-                        <li><strong>异构端成本高：</strong>车载、手表等极端异构端需要独立的产物链，产物数量倍增</li>
-                        <li><strong>灵活度受限：</strong>严格的红线拦截在探索性、实验性项目中可能成为阻力</li>
-                    </ul>
-                </div>
-            </div>
+            <h2>6. 变更管理</h2>
+
+            <h3>6.1 上游变更的传播</h3>
+            <p>修改上游产物时，必须执行以下流程：</p>
+            <ol>
+                <li>使用 <code>--scan-downstream</code> 扫描所有下游产物，输出受影响清单（支持 Markdown 和 HTML 格式）</li>
+                <li>按直接/间接下游分层展示影响范围，按优先级排序</li>
+                <li>询问用户是否级联修改</li>
+                <li>用户确认 → 同步修改所有下游产物</li>
+                <li>用户拒绝 → 在下游产物中标注 <code>[待同步]</code>，禁止留下不一致而不标注</li>
+            </ol>
+
+            <h3>6.2 下游变更的约束</h3>
+            <p>修改下游产物时，必须执行以下流程：</p>
+            <ol>
+                <li>读取所有上游产物</li>
+                <li>逐条比对修改内容是否在上游定义范围内</li>
+                <li>未超出范围 → 直接修改</li>
+                <li>超出范围 → 立即停止，先改上游</li>
+            </ol>
+
+            <h3>6.3 增量审计</h3>
+            <p>支持 <code>--delta</code> 参数进行增量审计，只检查变更范围内的标识符。适用于大产物的小范围修改场景，减少审计开销。</p>
         </div>
 
         <div class="section">
-            <h2>🚀 对工程的实际增益</h2>
-            <div class="benefit-list">
-                <div class="benefit-item">
-                    <div class="num">1</div>
-                    <div>
-                        <h4>减少"隐性返工"（最大的成本杀手）</h4>
-                        <p>很多项目的返工不是因为代码写得差，而是需求理解错了、上下游没对齐。这个 skill 在"动手写代码前"就强制对齐，把返工成本从"代码阶段"前置到"产物阶段"，成本降低 10 倍以上。</p>
-                    </div>
-                </div>
-                <div class="benefit-item">
-                    <div class="num">2</div>
-                    <div>
-                        <h4>建立"团队共享内存"</h4>
-                        <p>产物不是写给领导的，是写给"两周后的自己"和"新加入的同事"的。上下游追踪 + 显式状态映射让任何人都能快速理解"这个功能为什么这样设计"、"改了会影响哪些地方"。</p>
-                    </div>
-                </div>
-                <div class="benefit-item">
-                    <div class="num">3</div>
-                    <div>
-                        <h4>把"人治"变成"法治"</h4>
-                        <p>不依赖某个老员工的记性，而是靠产物网络和自动化审计来保证质量。人员流动、上下文切换时，项目不会瞬间失控。</p>
-                    </div>
-                </div>
-                <div class="benefit-item">
-                    <div class="num">4</div>
-                    <div>
-                        <h4>提升代码审查效率</h4>
-                        <p>代码审查时可以直接对照技术方案和 UI 规范，争论从"我觉得应该这样"变成"产物里怎么约定的"，减少主观扯皮。</p>
-                    </div>
-                </div>
-                <div class="benefit-item">
-                    <div class="num">5</div>
-                    <div>
-                        <h4>保护技术债不扩散</h4>
-                        <p>"禁止缺前置定义继续"这条规则，直接堵死了"先随便写一版后面再补"的借口。临时方案如果要转正，必须先补产物。</p>
-                    </div>
-                </div>
-            </div>
+            <h2>7. 适用边界</h2>
+
+            <h3>7.1 适合场景</h3>
+            <ul>
+                <li>中大型项目，多人、多角色协作</li>
+                <li>需求变更频繁，需要评估变更影响范围</li>
+                <li>多端/多产物线项目，需要隔离不同用户群体的功能差异</li>
+                <li>对产物一致性和可维护性有明确要求的长期项目</li>
+                <li>团队新人比例高，需要标准化产物模板和检查清单</li>
+            </ul>
+
+            <h3>7.2 不适合场景</h3>
+            <ul>
+                <li>原型验证、MVP 阶段，追求极致速度</li>
+                <li>个人 side project，产物维护成本高于收益</li>
+                <li>探索性技术预研，需求尚未收敛</li>
+                <li>纯车载/纯手表等单一极端异构端项目（产物链独立，维护成本较高）</li>
+            </ul>
         </div>
 
         <div class="section">
-            <h2>🎯 适合谁用？</h2>
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px;">
-                <div style="background:#f0fdf4; padding:20px; border-radius:10px; border:1px solid #bbf7d0;">
-                    <h4 style="color:#166534; margin-bottom:10px;">✅ 非常适合</h4>
-                    <ul style="color:#334155; padding-left:18px; line-height:1.8;">
-                        <li>中大型项目，多人协作</li>
-                        <li>需求变更频繁的业务</li>
-                        <li>对质量有明确要求的 B 端系统</li>
-                        <li>需要长期维护的核心模块</li>
-                        <li>多端/多产物线项目（App + Web + 管理后台）</li>
-                        <li>新人较多的团队</li>
-                    </ul>
-                </div>
-                <div style="background:#fffbeb; padding:20px; border-radius:10px; border:1px solid #fcd34d;">
-                    <h4 style="color:#92400e; margin-bottom:10px;">⚠️ 需要权衡</h4>
-                    <ul style="color:#334155; padding-left:18px; line-height:1.8;">
-                        <li>原型验证、MVP 阶段</li>
-                        <li>个人 side project</li>
-                        <li>探索性技术预研</li>
-                        <li>极度追求速度的营销活动页</li>
-                        <li>纯车载/纯手表等极端异构端（产物链独立，成本较高）</li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-
-        <div class="section" style="padding-bottom: 30px;">
-            <div class="summary-box">
-                <h3>📋 总结</h3>
-                <p>e2e-solution-guard 本质上是一套<strong>"工程纪律"</strong>。它不会让你的代码写得更快，但会让你<strong>少做无用功、少踩重复的坑、少在需求变更时手忙脚乱</strong>。v2.8 的核心升级是<strong>产物线拆分</strong>（C端/管理后台/车载/手表各走各的链路）和<strong>关节层显式化</strong>（状态映射表、力学约束、响应式适配），让"从想法到代码"的链路在复杂多端场景下依然可控。它的成本是前期的产物投入，收益是整个项目周期的可控性和可维护性。如果你受够了"需求一改全项目爆炸"，这是一个值得认真考虑的方案。</p>
-            </div>
+            <h2>8. 系统代价</h2>
+            <p>采用该系统的显性成本包括：</p>
+            <ul>
+                <li><strong>前期投入</strong>：建立顶层定义、产物模板、产物依赖网络需要数人日的初始投入</li>
+                <li><strong>持续维护</strong>：产物网络需要随项目演进持续维护，变更时必须同步上下游</li>
+                <li><strong>学习成本</strong>：团队成员需要理解上下游关系、产物线拆分、边界规则</li>
+                <li><strong>工具依赖</strong>：审计脚本和模板体系是约束力的载体，脱离工具链后依赖团队自觉</li>
+            </ul>
+            <p>收益与成本的权衡取决于项目的规模、生命周期和变更频率。对于需求稳定、规模小、生命周期短的项目，该系统的投入产出比可能不理想。</p>
         </div>
 
         <footer>
-            <p>基于 e2e-solution-guard v2.8 技能文档整理 | 通俗版解读</p>
+            <p>e2e-solution-guard 机制解析报告</p>
         </footer>
     </div>
 </body>
