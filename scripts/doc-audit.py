@@ -281,6 +281,37 @@ class DocumentAuditor:
                     f"（已有 {prefix}{numbers[i]:03d}, {prefix}{numbers[i+1]:03d}）",
                 )
 
+    def _check_multi_prefix_continuity(self, text: str, location: str):
+        """按前缀分组检查编号连续性，支持混合前缀（如 USER-001, TICKET-CUST-001）。"""
+        if not text.strip():
+            return
+        ids = ID_RE.findall(text)
+        from collections import defaultdict
+        prefix_groups = defaultdict(list)
+        for id_str in ids:
+            m = re.match(r"(.+)-(\d+)$", id_str)
+            if m:
+                prefix_groups[m.group(1)].append(int(m.group(2)))
+        for prefix, nums in prefix_groups.items():
+            nums = sorted(set(nums))
+            for i in range(len(nums) - 1):
+                gap = nums[i + 1] - nums[i]
+                if gap > 1:
+                    skipped = [f"{prefix}-{n:03d}" for n in range(nums[i] + 1, nums[i + 1])]
+                    has_reserved = any(
+                        re.search(rf"{s}.*预留|预留.*{s}|角色标识.*{s}|{s}.*角色标识", self.raw_text)
+                        for s in skipped
+                    )
+                    if has_reserved:
+                        continue
+                    self.add_issue(
+                        "number_gap",
+                        "blocking",
+                        location,
+                        f"{prefix} 编号不连续，缺少 {prefix}-{nums[i]+1:03d}"
+                        f"（已有 {prefix}-{nums[i]:03d}, {prefix}-{nums[i+1]:03d}）",
+                    )
+
     def check_duplicate_numbers(self, prefix: str, location: str, text: str | None = None):
         text = self.filter_delta_text(text or self.raw_text)
         if not text.strip():
@@ -584,7 +615,9 @@ class PRDAuditor(DocumentAuditor):
             and row[0].strip() not in ("功能编号", "编号", "ID")
         )
 
-        # 功能编号前缀由项目 PRD-顶层定义编码规则决定，不做硬编码连续性检查
+        # 编号连续性：按前缀分组检查跳号
+        if sec3_first_col.strip():
+            self._check_multi_prefix_continuity(sec3_first_col, "§3 功能需求")
 
         # 表格格式
         self.check_table_format()
@@ -737,7 +770,15 @@ class InteractionAuditor(DocumentAuditor):
                 )
                 break  # 只报一次，避免重复
 
-        # 页面编号格式由项目自定义，不硬编码连续性检查
+        # 页面编号连续性检查
+        page_ids = []
+        for sec in page_sections:
+            pm = re.search(r"([A-Z]+(?:-[A-Z]+)*-\d+)", sec)
+            if pm:
+                page_ids.append(pm.group(1))
+        if page_ids:
+            self._check_multi_prefix_continuity("\n".join(page_ids), "交互设计页面编号")
+
         self.check_table_format()
         self.check_upstream_references()
 
@@ -763,6 +804,27 @@ class TechAuditor(DocumentAuditor):
         self.check_interface_consistency(sec4_text, sec13_text)
         # check_error_code_format 需要传入 error_prefixes 参数，当前无项目级配置，暂不调用
         # self.check_error_code_format(error_prefixes=[...])
+
+        # §3 数据模型审计字段检查
+        audit_fields = ["created_at", "updated_at", "creator_id", "updater_id", "created_by", "updated_by"]
+        if sec3_text and not any(field in sec3_text for field in audit_fields):
+            self.add_hint(
+                "missing_audit_fields",
+                "warning",
+                "§3 数据模型",
+                "未检测到审计字段（如 created_at/updated_at/creator_id 等）。如项目技术-顶层定义有要求，请补充",
+            )
+
+        # §4 接口功能点标注检查：提取所有接口定义区块，检查是否包含功能编号
+        api_blocks = re.findall(r"`(?:GET|POST|PUT|DELETE|PATCH)\s+(/[\w/{}:.-]+)`([\s\S]*?)(?=```|$|`(?:GET|POST|PUT|DELETE|PATCH))", sec4_text)
+        for path, block in api_blocks:
+            if not ID_RE.search(block):
+                self.add_hint(
+                    "api_no_feature_ref",
+                    "warning",
+                    f"§4 接口设计 {path}",
+                    "接口定义中未标注对应的功能点编号，建议补充以便追溯",
+                )
 
         # §7 每个异常场景对应 PRD 错误处理或模块特定异常
         # 提取符合错误码格式的反引号内容（如 ERR-TICKET-001、TICKET-001）
@@ -887,13 +949,42 @@ class UIAuditor(DocumentAuditor):
                                   f"页面 {sec_id} 内容过少，请补充静态假数据")
 
         # 10. 状态映射表（关节层）
-        if "状态映射表" not in text and "交互状态" not in text:
+        has_state_mapping = "状态映射表" in text or "交互状态" in text
+        if not has_state_mapping:
             self.add_hint(
                 "ui_html_missing_state_mapping",
                 "warning",
                 "HTML",
                 "未检测到状态映射表注释。建议在 HTML 注释中显式声明'交互状态 → CSS 类/伪类 → Token'的映射关系，避免映射隐式散落在代码中",
             )
+        else:
+            # 检查状态映射表是否为 4 列
+            table_blocks = []
+            current_table = []
+            for line in text.splitlines():
+                if line.strip().startswith("|"):
+                    current_table.append(line)
+                else:
+                    if current_table:
+                        table_blocks.append(current_table)
+                        current_table = []
+            if current_table:
+                table_blocks.append(current_table)
+            for table in table_blocks:
+                if not table:
+                    continue
+                header = table[0]
+                cells = [c.strip() for c in header[1:].split("|")]
+                cells = [c for c in cells if c]
+                if any("交互状态" in c for c in cells):
+                    if len(cells) < 4:
+                        self.add_issue(
+                            "state_mapping_columns",
+                            "blocking",
+                            "UI",
+                            f"状态映射表表头只有 {len(cells)} 列，应为 4 列（交互状态 / CSS 类/伪类 / Token 变量 / 技术方案引用）",
+                        )
+                    break
 
 
 class TestAuditor(DocumentAuditor):
@@ -908,7 +999,12 @@ class TestAuditor(DocumentAuditor):
         sec1_text = self._section_text(r"§1\s+功能测试用例")
         sec2_text = self._section_text(r"§2\s+异常测试用例")
 
-        # 测试用例编号格式完全由项目自定义，此处不做硬编码格式检查
+        # 测试用例编号格式检查：提取所有 TC- 开头的编号并检查连续性
+        tc_ids = ID_RE.findall(sec1_text + sec2_text)
+        tc_lines = "\n".join(i for i in tc_ids if i.startswith("TC-"))
+        if tc_lines:
+            self._check_multi_prefix_continuity(tc_lines, "测试用例编号")
+
         self.check_table_format()
         self.check_upstream_references()
 
