@@ -78,12 +78,14 @@
 
 ### 并行执行与结果汇总
 
-主会话使用 `run_in_background=true` 并行启动所有 subagent：
+主会话**同时启动多个只读 subagent**并行执行审计，每个 subagent 独立加载所需上下文，独立完成检查：
 
 ```
-subagent-1 (机械): prompt="加载全文+上游，执行所有[脚本]标记检查项..." run_in_background=true timeout=600
-subagent-2 (语义): prompt="加载全文+上下游，按以下逐条拆表精读清单执行..." run_in_background=true timeout=900
+subagent-1 (机械): subagent_type="explore", prompt="加载全文+上游，执行所有[脚本]标记检查项...", timeout=600
+subagent-2 (语义): subagent_type="explore", prompt="加载全文+上下游，按以下逐条拆表精读清单执行...", timeout=900
 ```
+
+> **只读约束**：所有审计 subagent 必须使用 `explore` 类型，禁止写入任何文件。subagent 的审计结论通过返回结果传递，不由 subagent 自行修改产物。
 
 待全部返回后，主会话汇总：
 - 所有 blocking issue 合并输出
