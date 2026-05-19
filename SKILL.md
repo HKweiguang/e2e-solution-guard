@@ -54,7 +54,7 @@ e2e-solution-guard 的核心不是"写文档"，而是**管理从想法到代码
 
 | 场景 | 读取文件 | 说明 |
 |------|---------|------|
-| 评估想法、需求或技术方案 | `references/workflow/idea-evaluation.md` | Gap分析、方案融合判断、影响范围评估、可行性结论 |
+| 评估想法、需求或技术方案 | `references/workflow/idea-evaluation.md` | Gap 分析、方案融合判断、影响范围评估、可行性结论 |
 | 生成或修改任何产物 | `references/workflow/document-workflow.md` | 阶段1-3完整流程：前置检查、加载上下文、影响评估、生成/修改、审计 |
 | 发现上游缺陷需回改 | `references/workflow/change-propagation.md` | 回改触发、下游扫描、级联修改、重新验证 |
 | 代码已实现，验证一致性 | `references/workflow/code-verification.md` | 产物→代码闭环：定位代码、五项对比、产出审计报告 |

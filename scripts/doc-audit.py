@@ -268,7 +268,7 @@ class DocumentAuditor:
                 # 检查是否有预留声明（如"F107、F108 为预留跳号"）
                 skipped = [f"{prefix}{n:03d}" for n in range(numbers[i] + 1, numbers[i + 1])]
                 has_reserved = any(
-                    re.search(rf"{s}.*预留|预留.*{s}|角色标识.*{s}|{s}.*角色标识", self.raw_text)
+                    re.search(rf"{re.escape(s)}.*预留|预留.*{re.escape(s)}|角色标识.*{re.escape(s)}|{re.escape(s)}.*角色标识", self.raw_text)
                     for s in skipped
                 )
                 if has_reserved:
@@ -577,9 +577,10 @@ class DocumentAuditor:
         result: List[str] = []
         for block in blocks:
             block_text = "\n".join(block)
-            if any(scope in block_text for scope in self.delta_scope):
+            if any(re.search(rf"\b{re.escape(scope)}\b", block_text) for scope in self.delta_scope):
                 result.extend(block)
-        return "\n".join(result)
+                result.append("")
+        return "\n".join(result).rstrip("\n")
 
     def run(self):
         raise NotImplementedError
@@ -643,9 +644,19 @@ class PRDAuditor(DocumentAuditor):
                         f"功能点 {fid} 在 §6/§7/§8 中未被引用，请确认是否有遗漏章节",
                     )
 
-        # §3 功能编号重复检查
+        # §3 功能编号重复检查（按完整行去重，避免空前缀误匹配）
         if sec3_first_col.strip():
-            self.check_duplicate_numbers("", "§3 功能需求", sec3_first_col)
+            seen = set()
+            for line in sec3_first_col.splitlines():
+                fid = line.strip()
+                if fid in seen:
+                    self.add_issue(
+                        "duplicate_number",
+                        "blocking",
+                        "§3 功能需求",
+                        f"{fid} 出现重复",
+                    )
+                seen.add(fid)
 
         # §7 每个错误码在 §6 中有对应触发场景
         # 从 sec7 中提取反引号包裹的候选错误码，过滤掉字段名、状态值等非错误码内容
@@ -726,7 +737,7 @@ class InteractionAuditor(DocumentAuditor):
 
         # 每个页面检查 6 个必含子节 + 1 个可选子节（响应式适配）
         for sec in page_sections:
-            pm = re.search(r"([A-Z]+-[A-Z]+-\d+)", sec)
+            pm = re.search(r"([A-Z]+(?:-[A-Z]+)*-\d+)", sec)
             page_id = pm.group(1) if pm else "未知页面"
             required_subs = ["页面结构", "组件交互", "状态机", "页面流程", "异常处理", "与 PRD 对应"]
             for sub in required_subs:
@@ -806,7 +817,7 @@ class TechAuditor(DocumentAuditor):
         # self.check_error_code_format(error_prefixes=[...])
 
         # §3 数据模型审计字段检查
-        audit_fields = ["created_at", "updated_at", "creator_id", "updater_id", "created_by", "updated_by"]
+        audit_fields = ["created_at", "updated_at", "create_time", "update_time", "creator_id", "updater_id", "created_by", "updated_by"]
         if sec3_text and not any(field in sec3_text for field in audit_fields):
             self.add_hint(
                 "missing_audit_fields",
@@ -842,12 +853,12 @@ class TechAuditor(DocumentAuditor):
     def check_interface_consistency(self, sec4_text: str, sec13_text: str):
         """检查 §4 接口设计与 §13 接口清单是否一一对应"""
         # §4 中接口通常在反引号内，如 `POST /api/v1/orders`
-        pattern_4 = r"`(GET|POST|PUT|DELETE|PATCH)\s+(/[\w/{}:.-]+)`"
+        pattern_4 = r"`(GET|POST|PUT|DELETE|PATCH)\s+(/[\w/{}:.\-?=&]+)`"
         paths_4 = set(re.findall(pattern_4, sec4_text))
 
         # §13 中接口在表格单元格内，格式如 `| 提交订单 | POST | /api/v1/orders | ... |`
         # 需要匹配方法列和路径列（中间有 | 分隔），路径可能被反引号包裹
-        pattern_13 = r"\|\s*(GET|POST|PUT|DELETE|PATCH)\s*\|\s*`?(/[\w/{}:.-]+)`?\s*\|"
+        pattern_13 = r"\|\s*(GET|POST|PUT|DELETE|PATCH)\s*\|\s*`?(/[\w/{}:.\-?=&]+)`?\s*\|"
         paths_13 = set(re.findall(pattern_13, sec13_text))
 
         missing_in_13 = paths_4 - paths_13
@@ -897,7 +908,7 @@ class UIAuditor(DocumentAuditor):
             self.add_issue("ui_html_no_css_vars", "blocking", "CSS", "未使用 CSS 变量（var(--*)）")
 
         # 5. 硬编码色值检查（排除 :root 中的变量定义）
-        non_root_css = re.sub(r":root\s*\{[^}]*\}", "", css_text)
+        non_root_css = re.sub(r":root\s*\{[^}]*\}", "", css_text, flags=re.DOTALL)
         if re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\s*\(", non_root_css):
             self.add_hint("ui_html_hardcoded_colors", "warning", "CSS",
                           "发现硬编码色值（如 #RRGGBB 或 rgba()），应使用 CSS 变量引用 UI-顶层定义 Token")
@@ -1100,7 +1111,7 @@ ERROR_CODE_RE = r"[A-Z][A-Z0-9_]*(?:-[A-Z][A-Z0-9_]*)*-\d+"
 # 编号提取工具（跨格式）
 # ═══════════════════════════════════════════════════════════════════════════════
 
-ID_RE = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z][A-Za-z0-9]*)*(?:-\d+)+")
+ID_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*(?:-[A-Za-z][A-Za-z0-9_]*)*(?:-\d+)+")
 
 
 def extract_ids(text: str, prefix: Optional[str] = None) -> Set[str]:
