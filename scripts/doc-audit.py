@@ -1000,7 +1000,7 @@ ERROR_CODE_RE = r"[A-Z][A-Z0-9_]*(?:-[A-Z][A-Z0-9_]*)*-\d+"
 # 编号提取工具（跨格式）
 # ═══════════════════════════════════════════════════════════════════════════════
 
-ID_RE = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z][A-Za-z0-9]*)+-\d+")
+ID_RE = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z][A-Za-z0-9]*)*-\d+")
 
 
 def extract_ids(text: str, prefix: Optional[str] = None) -> Set[str]:

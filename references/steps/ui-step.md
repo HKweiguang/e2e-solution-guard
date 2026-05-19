@@ -28,8 +28,8 @@
 
 ## §2 HTML 原型
 
-产物文件：`ui-{角色}-{设备}-{页面组}.html`
-> 示例：`ui-c端-web-首页.html`、`ui-admin-用户列表.html`（管理后台通常只有 web）
+产物文件：`ui-{设备}-{页面组}.html`（单角色）或 `ui-{角色}-{设备}-{页面组}.html`（多角色）
+> 示例：`ui-web-首页.html`（单角色）、`ui-{角色}-web-首页.html`（多角色）
 
 ```html
 <!DOCTYPE html>
