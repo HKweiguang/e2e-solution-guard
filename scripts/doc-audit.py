@@ -847,6 +847,10 @@ class UIAuditor(DocumentAuditor):
             "focus": r":focus|:focus-visible",
             "disabled": r"\.disabled|:disabled",
             "loading": r"\.loading",
+            "empty": r"\.empty",
+            "error": r"\.error",
+            "success": r"\.success",
+            "skeleton": r"\.skeleton",
         }
         missing_states = [name for name, pat in state_patterns.items() if not re.search(pat, css_text)]
         if missing_states:
@@ -975,7 +979,7 @@ class GlobalTechAuditor(DocumentAuditor):
         self.check_table_format()
 
         # 检查 2.5.2 统一响应结构包含 code/message/data/traceId/timestamp
-        sec25_text = self._section_text(r"5\.2.*响应结构|统一响应结构")
+        sec25_text = self._section_text(r"§?2\.5\.2.*响应结构|统一响应结构")
         missing_fields = []
         for field in ("code", "message", "data", "traceId", "timestamp"):
             if field not in sec25_text:
@@ -984,7 +988,7 @@ class GlobalTechAuditor(DocumentAuditor):
             self.add_issue(
                 "response_structure",
                 "blocking",
-                "§5.2 统一响应结构",
+                "§2.5.2 统一响应结构",
                 f"未明确声明响应结构包含字段: {', '.join(missing_fields)}",
             )
 
@@ -1000,7 +1004,7 @@ ERROR_CODE_RE = r"[A-Z][A-Z0-9_]*(?:-[A-Z][A-Z0-9_]*)*-\d+"
 # 编号提取工具（跨格式）
 # ═══════════════════════════════════════════════════════════════════════════════
 
-ID_RE = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z][A-Za-z0-9]*)*-\d+")
+ID_RE = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z][A-Za-z0-9]*)*(?:-\d+)+")
 
 
 def extract_ids(text: str, prefix: Optional[str] = None) -> Set[str]:
@@ -1018,7 +1022,7 @@ def extract_ids(text: str, prefix: Optional[str] = None) -> Set[str]:
     ids = {i.upper() for i in ids}
     if prefix:
         p = prefix.upper()
-        ids = {i for i in ids if i.startswith(p)}
+        ids = {i for i in ids if i.startswith(p + "-") or i == p}
     return ids
 
 
