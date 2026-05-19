@@ -98,21 +98,23 @@ e2e-solution-guard/
             ▼
 【模块级产物链】按模块聚合
 
-用户管理-C端                订单管理-C端
+单角色项目示例（最常见）：
+
+用户管理模块              订单管理模块
 ┌──────────────────┐          ┌──────────────────┐
-│ prd-c端.md       │          │ prd-c端.md       │
+│ prd.md           │          │ prd.md           │
 │ (注册/登录)      │          │ (购物车/下单)    │
 └─────┬────────────┘          └─────┬────────────┘
       │                             │
       ▼                             ▼
 ┌──────────────────┐          ┌──────────────────┐
-│ 交互设计-c端.md   │          │ 交互设计-c端.md   │
+│ 交互设计.md       │          │ 交互设计.md       │
 │ (流程/骨架)      │          │ (流程/骨架)      │
 └─────┬────────────┘          └─────┬────────────┘
       │                             │
       ▼                             ▼
 ┌──────────────────┐          ┌──────────────────┐
-│ ui-c端-web.html  │          │ ui-c端-web.html  │
+│ ui.html          │          │ ui.html          │
 │ (视觉原型)       │          │ (视觉原型)       │
 └─────┬────────────┘          └─────┬────────────┘
       │                             │
@@ -143,6 +145,8 @@ e2e-solution-guard/
             │  │ (Go/Java)  │  │
             │  └────────────┘  │
             └──────────────────┘
+
+多角色项目（如 C端 + 管理后台）：模块内增加 `prd-{角色}.md`、`交互设计-{角色}.md`、`ui-{角色}-{设备}.html`。
 ```
 
 **关键设计**：
@@ -154,7 +158,7 @@ e2e-solution-guard/
 
 ## 多端项目示例
 
-一个 web 应用同时包含 C端消费者、B端商家和管理后台时，按业务域分模块、模块内按角色分 PRD、按角色+设备分交互/UI：
+一个多角色项目（如包含消费者端、商家端、管理后台）的目录结构示例：
 
 ```
 docs/
@@ -164,32 +168,34 @@ docs/
 │   ├── 项目-UI-顶层定义.md
 │   └── 项目-技术-顶层定义.md
 ├── 用户管理/
-│   ├── prd-c端.md                # C端消费者：注册/登录/个人信息
-│   ├── prd-admin.md              # 管理后台：用户列表/权限/冻结
-│   ├── 交互设计-c端.md            # C端交互（web+app 合并）
-│   ├── ui-c端-web.html           # C端 web 视觉稿
-│   ├── ui-c端-app.html           # C端 App 视觉稿
-│   ├── 交互设计-admin.md          # 管理后台交互
-│   ├── ui-admin.html             # 管理后台视觉稿
+│   ├── prd.md                    # 共享：用户实体、状态值
+│   ├── prd-{角色A}.md             # 角色 A 特有功能
+│   ├── prd-{角色B}.md             # 角色 B 特有功能
+│   ├── 交互设计-{角色A}.md         # 角色 A 交互
+│   ├── ui-{角色A}-web.html        # 角色 A web 视觉稿
+│   ├── ui-{角色A}-app.html        # 角色 A App 视觉稿
+│   ├── 交互设计-{角色B}.md         # 角色 B 交互
+│   ├── ui-{角色B}-web.html        # 角色 B web 视觉稿
 │   ├── 技术方案.md                # 统一技术方案
 │   └── 测试报告.md
 ├── 订单管理/
-│   ├── prd-c端.md                # C端消费者：购物车/下单/支付
-│   ├── prd-b端.md                # B端商家：订单处理/发货
-│   ├── prd-admin.md              # 管理后台：退款审核
-│   ├── 交互设计-c端.md
-│   ├── ui-c端-web.html
-│   ├── ui-c端-app.html
-│   ├── 交互设计-b端.md
-│   ├── ui-b端-web.html
-│   ├── 交互设计-admin.md
-│   ├── ui-admin.html
+│   ├── prd.md                    # 共享：订单实体、状态值
+│   ├── prd-{角色A}.md             # 角色 A 特有功能
+│   ├── prd-{角色B}.md             # 角色 B 特有功能
+│   ├── prd-{角色C}.md             # 角色 C 特有功能
+│   ├── 交互设计-{角色A}.md
+│   ├── ui-{角色A}-web.html
+│   ├── ui-{角色A}-app.html
+│   ├── 交互设计-{角色B}.md
+│   ├── ui-{角色B}-web.html
+│   ├── 交互设计-{角色C}.md
+│   ├── ui-{角色C}-web.html
 │   ├── 技术方案.md
 │   └── 测试报告.md
-└── 数据统计/                     # 纯管理后台，无 C端/B端
-    ├── prd-admin.md
-    ├── 交互设计-admin.md
-    ├── ui-admin.html
+└── 数据统计/                     # 只有一个角色的模块
+    ├── prd.md
+    ├── 交互设计.md
+    ├── ui.html
     ├── 技术方案.md
     └── 测试报告.md
 ```
@@ -198,9 +204,8 @@ docs/
 
 | 角色 | 标识 | 功能编号示例 | 说明 |
 |------|------|------------|------|
-| C端消费者 | `CUST` | `USER-CUST-001` | 注册/登录/个人信息 |
-| B端商家 | `MERCHANT` | `ORDER-MERCHANT-001` | 店铺管理/商品上架 |
-| 管理后台 | `ADMIN` | `USER-ADMIN-001` | 用户列表/权限/冻结 |
+| {角色A} | `{标识A}` | `USER-{标识A}-001` | {功能描述} |
+| {角色B} | `{标识B}` | `ORDER-{标识B}-001` | {功能描述} |
 
 ---
 
@@ -215,7 +220,7 @@ docs/
 
 | 文档 | 类型 | 引用范围 |
 |------|------|---------|
-| PRD-v1-订单模块-c端 | 需求输入 | ORDER-CUST-001 ~ ORDER-CUST-006 |
+| PRD-v1-订单模块 | 需求输入 | ORDER-001 ~ ORDER-006 |
 | 项目技术-顶层定义 | 规范继承 | 技术栈、公共表、接口约定 |
 ```
 
@@ -233,7 +238,7 @@ docs/
 python3 scripts/doc-audit.py prd-c端.md --type prd
 
 # 增量审计（只检查变更的功能点）
-python3 scripts/doc-audit.py prd-c端.md --type prd --delta ORDER-CUST-001,ORDER-CUST-003
+python3 scripts/doc-audit.py prd.md --type prd --delta ORDER-001,ORDER-003
 
 # 扫描下游影响
 python3 scripts/doc-audit.py prd-c端.md --type prd --scan-downstream ./docs/
@@ -252,10 +257,10 @@ python3 scripts/doc-audit.py prd-c端.md --type prd --scan-downstream ./docs/
 
 | 模块 | 角色 | 角色标识 | 功能编号示例 | 页面编号示例 |
 |------|------|---------|------------|------------|
-| M01 订单模块 | C端消费者 | CUST | ORDER-CUST-001 | PAGE-CUST-ORDER-001 |
-| M01 订单模块 | B端商家 | MERCHANT | ORDER-MERCHANT-001 | PAGE-MERCHANT-ORDER-001 |
-| M02 用户模块 | C端消费者 | CUST | USER-CUST-001 | PAGE-CUST-PROFILE-001 |
-| M02 用户模块 | 管理后台 | ADMIN | USER-ADMIN-001 | PAGE-ADMIN-LIST-001 |
+| M01 订单模块 | {角色A} | {标识A} | ORDER-{标识A}-001 | PAGE-{标识A}-ORDER-001 |
+| M01 订单模块 | {角色B} | {标识B} | ORDER-{标识B}-001 | PAGE-{标识B}-ORDER-001 |
+| M02 用户模块 | {角色A} | {标识A} | USER-{标识A}-001 | PAGE-{标识A}-PROFILE-001 |
+| M02 用户模块 | {角色B} | {标识B} | USER-{标识B}-001 | PAGE-{标识B}-LIST-001 |
 
 模块内连续，段间允许跳号。
 

@@ -173,7 +173,7 @@ class DocumentAuditor:
     ):
         self.doc_path = Path(doc_path)
         self.upstream_paths = [Path(p) for p in (upstream_paths or [])]
-        self.delta_scope = set(delta_scope or [])  # 增量范围，如 {"USER-CUST-001", "PAGE-CUST-001"}（示例，实际标识符格式以项目定义为准）
+        self.delta_scope = set(delta_scope or [])  # 增量范围，如 {"USER-001", "PAGE-001"}（示例，实际标识符格式以项目定义为准）
         self.raw_text = self.doc_path.read_text(encoding="utf-8")
         self.nodes = MarkdownParser(self.raw_text).parse()
         self.issues: List[AuditIssue] = []
@@ -416,7 +416,7 @@ class DocumentAuditor:
         做差集比对，报告上游有但当前产物中缺失的编号。
         
         Args:
-            id_prefix: 若提供，只比对该前缀的编号（如 "USER" 只比对 USER-CUST-001）。
+            id_prefix: 若提供，只比对该前缀的编号（如 "USER" 只比对 USER-001）。
                       若未提供，比对上游中出现的所有编号前缀。
         """
         if not self.upstream_paths:
@@ -641,7 +641,7 @@ class PRDAuditor(DocumentAuditor):
             feature_col = row[1].strip() if len(row) > 1 else ""
             has_ref = False
             if feature_col and feature_ids:
-                # 按常见分隔符拆分后精确匹配，避免前缀误匹配（如 USER-CUST-001 误命中 USER-CUST-0010）
+                # 按常见分隔符拆分后精确匹配，避免前缀误匹配（如 USER-001 误命中 USER-0010）
                 col_parts = re.split(r"[,，;；\s|]+", feature_col)
                 has_ref = any(fid == part for part in col_parts for fid in feature_ids)
             if not has_ref and feature_ids:
@@ -667,7 +667,7 @@ class InteractionAuditor(DocumentAuditor):
         ])
 
         # 提取所有页面章节文本（一级标题匹配页面编号格式）
-        # 页面编号格式由项目编码规则决定，支持任意前缀（如 PAGE-CUST-TICKET-001）
+        # 页面编号格式由项目编码规则决定，支持任意前缀（如 PAGE-TICKET-001）
         page_sections: List[str] = []
         current_section = ""
         for n in self.nodes:
@@ -688,7 +688,7 @@ class InteractionAuditor(DocumentAuditor):
                     "missing_page_sections",
                     "blocking",
                     "交互设计产物",
-                    "未检测到任何符合格式的页面章节（如 §1 PAGE-CUST-TICKET-001），请确认页面编号格式",
+                    "未检测到任何符合格式的页面章节（如 §1 PAGE-TICKET-001），请确认页面编号格式",
                 )
 
         # 每个页面检查 6 个必含子节 + 1 个可选子节（响应式适配）
@@ -765,7 +765,7 @@ class TechAuditor(DocumentAuditor):
         # self.check_error_code_format(error_prefixes=[...])
 
         # §7 每个异常场景对应 PRD 错误处理或模块特定异常
-        # 提取符合错误码格式的反引号内容（如 ERR-TICKET-CUST-001、TICKET-CUST-001）
+        # 提取符合错误码格式的反引号内容（如 ERR-TICKET-001、TICKET-001）
         ex_codes = re.findall(rf"`({ERROR_CODE_RE})`", sec7_text)
         for code in set(ex_codes):
             # 检查是否也在 §4 接口设计中出现
@@ -1004,17 +1004,17 @@ ID_RE = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z][A-Za-z0-9]*)+-\d+")
 
 
 def extract_ids(text: str, prefix: Optional[str] = None) -> Set[str]:
-    """从文本中提取编号标识符（如 USER-CUST-001, PAGE-CUST-TICKET-001, ERR-AUTH-003）。
+    """从文本中提取编号标识符（如 USER-001, PAGE-TICKET-001, ERR-AUTH-003）。
     
     Args:
         text: 待扫描文本
-        prefix: 若提供，只返回以该前缀开头的编号（如 "USER" 匹配 USER-CUST-001 但不匹配 PAGE-001）
+        prefix: 若提供，只返回以该前缀开头的编号（如 "USER" 匹配 USER-001 但不匹配 PAGE-001）
     
     Returns:
         去重后的编号集合（统一大写）
     """
     ids = set(ID_RE.findall(text))
-    # 统一大写，避免 page-user-cust-001 与 PAGE-USER-CUST-001 被视为不同编号
+    # 统一大写，避免 page-user-001 与 PAGE-USER-001 被视为不同编号
     ids = {i.upper() for i in ids}
     if prefix:
         p = prefix.upper()
