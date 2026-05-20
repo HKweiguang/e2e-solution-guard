@@ -7,586 +7,353 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            line-height: 1.7;
-            color: #1a202c;
-            background: #f7fafc;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            line-height: 1.6;
+            color: #1e293b;
+            background: #f8fafc;
         }
-        .container {
-            max-width: 880px;
-            margin: 0 auto;
-            padding: 40px 20px;
-        }
+        .wrap { max-width: 840px; margin: 0 auto; padding: 32px 20px; }
 
-        header {
-            text-align: center;
-            padding: 48px 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+        /* Header */
+        .hero {
+            background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f172a 100%);
             border-radius: 16px;
-            margin-bottom: 36px;
+            padding: 48px 32px;
+            text-align: center;
+            color: #fff;
+            margin-bottom: 28px;
+            position: relative;
+            overflow: hidden;
         }
-        header h1 { font-size: 2em; margin-bottom: 8px; }
-        header p { opacity: 0.9; max-width: 520px; margin: 0 auto; }
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: -50%; left: -50%;
+            width: 200%; height: 200%;
+            background: radial-gradient(circle at 30% 30%, rgba(99,102,241,0.15) 0%, transparent 50%),
+                        radial-gradient(circle at 70% 70%, rgba(56,189,248,0.1) 0%, transparent 50%);
+        }
+        .hero h1 { font-size: 2em; position: relative; margin-bottom: 8px; }
+        .hero p { opacity: 0.75; font-size: 1.05em; position: relative; }
 
-        .section {
-            background: white;
+        /* Cards */
+        .card {
+            background: #fff;
             border-radius: 12px;
-            padding: 32px;
-            margin-bottom: 24px;
+            padding: 28px;
+            margin-bottom: 20px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.06);
         }
-        .section h2 {
-            font-size: 1.3em;
-            color: #2d3748;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .section > p {
-            color: #4a5568;
+        .card h2 {
+            font-size: 1.2em;
+            color: #0f172a;
             margin-bottom: 16px;
-        }
-
-        /* Pain points */
-        .pain-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
-        }
-        .pain-item {
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 8px;
+        }
+        .card > p { color: #475569; margin-bottom: 12px; font-size: 0.95em; }
+
+        /* Pain grid */
+        .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+        .item {
             background: #f8fafc;
             border: 1px solid #e2e8f0;
             border-radius: 10px;
             padding: 16px;
-        }
-        .pain-item .icon { font-size: 1.6em; flex-shrink: 0; }
-        .pain-item p { font-size: 0.9em; color: #4a5568; margin: 0; }
-
-        /* Pipeline */
-        .pipeline {
             display: flex;
             align-items: center;
-            justify-content: center;
-            flex-wrap: wrap;
-            gap: 6px;
-            margin: 24px 0;
-        }
-        .pipe-step {
-            background: white;
-            border: 2px solid #667eea;
-            color: #667eea;
-            padding: 10px 16px;
-            border-radius: 24px;
-            font-weight: 600;
+            gap: 10px;
             font-size: 0.9em;
-        }
-        .pipe-arrow { color: #94a3b8; font-size: 1.2em; }
-
-        /* Product cards */
-        .prod-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 12px;
-            margin-top: 16px;
-        }
-        .prod-card {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 10px;
-            padding: 20px 12px;
-            text-align: center;
-        }
-        .prod-card .icon { font-size: 2em; margin-bottom: 8px; }
-        .prod-card h4 { font-size: 0.95em; color: #2d3748; margin-bottom: 4px; }
-        .prod-card p { font-size: 0.8em; color: #64748b; margin: 0; }
-        .prod-card .tag {
-            display: inline-block;
-            background: #e0e7ff;
-            color: #4338ca;
-            padding: 2px 8px;
-            border-radius: 10px;
-            font-size: 0.72em;
-            margin-top: 6px;
-        }
-
-        /* Tree */
-        .tree {
-            background: #0f172a;
-            border-radius: 10px;
-            padding: 24px;
-            margin: 16px 0;
-            font-family: "SF Mono", Monaco, monospace;
-            font-size: 0.85em;
-            line-height: 1.8;
-            color: #cbd5e1;
-            overflow-x: auto;
-        }
-        .tree .role { color: #a78bfa; font-weight: 600; }
-        .tree .device { color: #34d399; }
-        .tree .file { color: #e2e8f0; }
-        .tree .comment { color: #64748b; }
-        .tree .folder { color: #fbbf24; }
-
-        /* Tags row */
-        .tags-row {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-top: 16px;
-        }
-        .tag-item {
-            background: #f0fdf4;
-            border: 1px solid #bbf7d0;
-            color: #166534;
-            padding: 6px 14px;
-            border-radius: 20px;
-            font-size: 0.85em;
-        }
-
-        /* Rules boxes */
-        .rules-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-            margin-top: 16px;
-        }
-        .rules-box {
-            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
-            border: 1px solid #bae6fd;
-            border-radius: 12px;
-            padding: 20px;
-        }
-        .rules-box h4 {
-            color: #0369a1;
-            margin-bottom: 12px;
-            font-size: 1em;
-        }
-        .rule-row {
-            display: flex;
-            align-items: flex-start;
-            gap: 8px;
-            margin-bottom: 8px;
-            font-size: 0.88em;
             color: #334155;
         }
-        .rule-row .num {
-            background: #0284c7;
-            color: white;
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.75em;
-            font-weight: 600;
-            flex-shrink: 0;
-        }
+        .item .icon { font-size: 1.5em; flex-shrink: 0; }
 
-        /* Platform matrix */
-        .plat-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 12px;
-            margin-top: 16px;
-        }
-        .plat-card {
-            background: white;
-            border: 2px solid #e2e8f0;
+        /* SVG diagrams */
+        .diagram { width: 100%; margin: 12px 0; }
+        .diagram svg { width: 100%; height: auto; display: block; }
+
+        /* Redline */
+        .redline { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+        .red {
             border-radius: 10px;
-            padding: 18px;
-        }
-        .plat-card h4 {
-            font-size: 1em;
-            color: #4338ca;
-            margin-bottom: 10px;
-            padding-bottom: 8px;
-            border-bottom: 2px solid #e0e7ff;
-        }
-        .plat-card li {
-            font-size: 0.85em;
-            color: #4a5568;
-            margin-bottom: 5px;
-        }
-
-        /* Flow diagram */
-        .flow-box {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 10px;
-            padding: 24px;
-            margin: 16px 0;
-        }
-        .flow-box pre {
-            font-family: "SF Mono", Monaco, monospace;
-            font-size: 0.85em;
-            line-height: 1.8;
-            color: #334155;
-        }
-
-        /* Two columns for upstream/downstream */
-        .duo {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-top: 16px;
-        }
-        .duo-box {
-            padding: 18px;
-            border-radius: 10px;
-        }
-        .duo-up { background: #fef2f2; border: 2px solid #fca5a5; }
-        .duo-down { background: #fff7ed; border: 2px solid #fdba74; }
-        .duo-box h4 { margin-bottom: 8px; font-size: 1em; }
-        .duo-up h4 { color: #991b1b; }
-        .duo-down h4 { color: #9a3412; }
-        .duo-box p { font-size: 0.9em; color: #4a5568; margin: 0; }
-
-        /* Audit table */
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 16px;
-            font-size: 0.9em;
-        }
-        th, td {
-            padding: 10px;
-            text-align: left;
-            border-bottom: 1px solid #e2e8f0;
-        }
-        th { background: #f7fafc; font-weight: 600; color: #2d3748; }
-        td { color: #4a5568; }
-
-        /* Red lines */
-        .redline-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-top: 16px;
-        }
-        .redline-box {
             padding: 20px;
-            border-radius: 10px;
             text-align: center;
         }
-        .redline-1 { background: #fef2f2; border: 2px solid #ef4444; }
-        .redline-2 { background: #fff7ed; border: 2px solid #f97316; }
-        .redline-box h4 { margin-bottom: 8px; font-size: 1.1em; }
-        .redline-1 h4 { color: #991b1b; }
-        .redline-2 h4 { color: #9a3412; }
-        .redline-box p { font-size: 0.9em; color: #4a5568; margin: 0; }
+        .red-1 { background: #fef2f2; border: 2px solid #ef4444; }
+        .red-2 { background: #fff7ed; border: 2px solid #f97316; }
+        .red h4 { margin-bottom: 6px; font-size: 1em; }
+        .red-1 h4 { color: #991b1b; }
+        .red-2 h4 { color: #9a3412; }
+        .red p { font-size: 0.88em; color: #475569; }
 
         /* Analogy */
         .analogy {
             background: #fffbeb;
             border-left: 4px solid #f59e0b;
-            padding: 16px 20px;
+            padding: 14px 18px;
             border-radius: 0 8px 8px 0;
+            font-size: 0.95em;
         }
         .analogy strong { color: #92400e; }
 
-        footer {
-            text-align: center;
-            padding: 30px;
-            color: #a0aec0;
-            font-size: 0.9em;
-        }
+        footer { text-align: center; padding: 24px; color: #94a3b8; font-size: 0.85em; }
 
         @media (max-width: 640px) {
-            .pain-grid { grid-template-columns: 1fr; }
-            .rules-grid { grid-template-columns: 1fr; }
-            .plat-grid { grid-template-columns: 1fr; }
-            .duo { grid-template-columns: 1fr; }
-            .redline-grid { grid-template-columns: 1fr; }
+            .grid2, .grid4, .redline { grid-template-columns: 1fr; }
+            .hero h1 { font-size: 1.5em; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>e2e-solution-guard</h1>
-            <p>让"从想法到代码"的每一步都有迹可循、有据可依</p>
-        </header>
+<div class="wrap">
 
-        <!-- 问题 -->
-        <div class="section">
-            <h2>💡 解决什么问题</h2>
-            <div class="pain-grid">
-                <div class="pain-item">
-                    <span class="icon">📝</span>
-                    <p>PRD 改了功能，下游技术方案和测试用例没同步</p>
-                </div>
-                <div class="pain-item">
-                    <span class="icon">🎨</span>
-                    <p>交互设计的状态，前端凭感觉写 CSS，没对齐</p>
-                </div>
-                <div class="pain-item">
-                    <span class="icon">📱</span>
-                    <p>同一功能在 App、Web 长得不一样，用户困惑</p>
-                </div>
-                <div class="pain-item">
-                    <span class="icon">🔍</span>
-                    <p>代码写完了，找不到最初的需求来源</p>
-                </div>
-            </div>
-        </div>
+<!-- ===== Header ===== -->
+<div class="hero">
+    <h1>e2e-solution-guard</h1>
+    <p>端到端方案助手：从想法到落地，全程辅助</p>
+</div>
 
-        <!-- 全貌 -->
-        <div class="section">
-            <h2>🗺️ 全貌</h2>
-            <div class="pipeline">
-                <span class="pipe-step">💡 想法</span>
-                <span class="pipe-arrow">→</span>
-                <span class="pipe-step">📋 PRD</span>
-                <span class="pipe-arrow">→</span>
-                <span class="pipe-step">🎨 交互</span>
-                <span class="pipe-arrow">→</span>
-                <span class="pipe-step">🖌️ UI</span>
-                <span class="pipe-arrow">→</span>
-                <span class="pipe-step">⚡ 技术</span>
-                <span class="pipe-arrow">→</span>
-                <span class="pipe-step">🧪 测试</span>
-                <span class="pipe-arrow">→</span>
-                <span class="pipe-step">💻 代码</span>
-            </div>
+<!-- ===== 一句话 ===== -->
+<div class="card">
+    <h2>💡 一句话</h2>
+    <p>从想法评估、产物生成、跨模块对齐到代码验证，<strong>全程辅助</strong>——让每一步都有据可依、变更可追溯、落地不跑偏。</p>
+</div>
 
-            <div class="prod-grid">
-                <div class="prod-card">
-                    <div class="icon">📋</div>
-                    <h4>PRD</h4>
-                    <p>功能说明书</p>
-                    <span class="tag">Markdown</span>
-                </div>
-                <div class="prod-card">
-                    <div class="icon">🎨</div>
-                    <h4>交互设计</h4>
-                    <p>结构+行为</p>
-                    <span class="tag">Markdown+SVG</span>
-                </div>
-                <div class="prod-card">
-                    <div class="icon">🖌️</div>
-                    <h4>UI 设计</h4>
-                    <p>视觉实现</p>
-                    <span class="tag">HTML</span>
-                </div>
-                <div class="prod-card">
-                    <div class="icon">⚡</div>
-                    <h4>技术方案</h4>
-                    <p>施工方案</p>
-                    <span class="tag">Markdown</span>
-                </div>
-                <div class="prod-card">
-                    <div class="icon">🧪</div>
-                    <h4>测试报告</h4>
-                    <p>验收单</p>
-                    <span class="tag">Markdown</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- 产物组织 -->
-        <div class="section">
-            <h2>🏗️ 产物组织：先角色，后设备</h2>
-            <p>角色和设备不是同一级。先按角色分文件，再在角色内按设备分。</p>
-
-            <div class="tree">
-<span class="role">角色</span> → <span class="device">设备</span>
-
-<span class="folder">📁 用户管理/</span>
-├── <span class="file">prd.md</span>                    <span class="comment">← 统一 PRD，所有角色功能点</span>
-├── <span class="file">交互设计-C端.md</span>           <span class="comment">← C 端交互</span>
-├── <span class="file">交互设计-管理后台.md</span>     <span class="comment">← 管理后台交互</span>
-├── <span class="file">ui-C端-web.html</span>         <span class="comment">← C 端 Web</span>
-├── <span class="file">ui-C端-app.html</span>         <span class="comment">← C 端 App</span>
-├── <span class="file">ui-管理后台-web.html</span>    <span class="comment">← 管理后台 Web</span>
-├── <span class="file">技术方案.md</span>             <span class="comment">← 统一技术方案</span>
-└── <span class="file">测试报告.md</span>
-            </div>
-
-            <div class="tags-row">
-                <span class="tag-item">📌 一个模块一个 PRD</span>
-                <span class="tag-item">📌 交互设计按角色分</span>
-                <span class="tag-item">📌 UI 按角色+设备分</span>
-                <span class="tag-item">📌 技术方案统一</span>
-            </div>
-        </div>
-
-        <!-- 通用规则 -->
-        <div class="section">
-            <h2>📐 顶层定义 = 通用规则仓库</h2>
-            <p>跨模块共享的规则写在顶层定义里，模块级产物直接引用，禁止擅自扩展。</p>
-
-            <div class="rules-grid">
-                <div class="rules-box">
-                    <h4>🎮 交互-顶层定义</h4>
-                    <div class="rule-row"><span class="num">1</span><span><b>交互令牌</b> — 状态色、焦点环、动效分级</span></div>
-                    <div class="rule-row"><span class="num">2</span><span><b>状态规范</b> — 6 基础 + 4 异步状态</span></div>
-                    <div class="rule-row"><span class="num">3</span><span><b>反馈规范</b> — 时效红线、动效分级、缓动曲线</span></div>
-                    <div class="rule-row"><span class="num">4</span><span><b>交互规范</b> — 导航、页面层级、手势、组件行为</span></div>
-                    <div class="rule-row"><span class="num">5</span><span><b>平台交互规范</b> — Web/App/小程序交互差异</span></div>
-                </div>
-                <div class="rules-box">
-                    <h4>🎨 UI-顶层定义</h4>
-                    <div class="rule-row"><span class="num">1</span><span><b>设计令牌</b> — Token 命名、三级映射</span></div>
-                    <div class="rule-row"><span class="num">2</span><span><b>色彩系统</b> — 调色板、色阶、色彩角色</span></div>
-                    <div class="rule-row"><span class="num">3</span><span><b>字体系统</b> — 家族、字号层级、字重</span></div>
-                    <div class="rule-row"><span class="num">4</span><span><b>间距与布局</b> — 基础单位、栅格、断点</span></div>
-                    <div class="rule-row"><span class="num">5</span><span><b>组件库</b> — 分类、全局状态、清单</span></div>
-                    <div class="rule-row"><span class="num">6</span><span><b>平台视觉规范</b> — Web/App/小程序视觉差异</span></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 平台差异 -->
-        <div class="section">
-            <h2>📱 平台差异：角色内不同设备的交互/视觉差异</h2>
-            <p>同一角色下，Web、App、小程序的交互和视觉差异，在顶层定义中统一声明。</p>
-
-            <div class="plat-grid">
-                <div class="plat-card">
-                    <h4>🌐 Web 端</h4>
-                    <ul>
-                        <li>鼠标 hover / 右键菜单</li>
-                        <li>键盘 Tab 聚焦</li>
-                        <li>Ctrl+S / Ctrl+F 快捷键</li>
-                        <li>触摸支持（二合一）</li>
-                    </ul>
-                </div>
-                <div class="plat-card">
-                    <h4>📱 App 端</h4>
-                    <ul>
-                        <li>点击 / 长按 / 滑动 / 双指缩放</li>
-                        <li>系统返回键 / 顶部返回</li>
-                        <li>软键盘 / 语音 / 扫码</li>
-                        <li>推送 / 本地通知</li>
-                    </ul>
-                </div>
-                <div class="plat-card">
-                    <h4>💬 小程序</h4>
-                    <ul>
-                        <li>右上角分享 / 按钮分享</li>
-                        <li>下拉刷新</li>
-                        <li>调用扫码能力</li>
-                        <li>页面生命周期</li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-
-        <!-- 上下游 -->
-        <div class="section">
-            <h2>🔗 上下游追溯</h2>
-            <p>每份产物开头声明「我从哪来」，系统据此建立依赖网络。</p>
-
-            <div class="flow-box">
-<pre>        📋 PRD (上游)
-           │ 引用 USER-001
-           ▼
-    ┌─────────────┐
-    │  🎨 交互设计  │  ← 也引用 交互-顶层定义 §2, §4, §6
-    └─────────────┘
-           │ 引用 PAGE-001
-           ▼
-    ┌─────────────┐
-    │  🖌️ UI 设计   │  ← 也引用 UI-顶层定义 Token/组件库
-    └─────────────┘
-           │ 引用接口
-           ▼
-    ┌─────────────┐
-    │  ⚡ 技术方案  │  ← 也引用 技术-顶层定义 §4, §5
-    └─────────────┘
-           │ 引用功能+异常
-           ▼
-    ┌─────────────┐
-    │  🧪 测试报告  │
-    └─────────────┘</pre>
-            </div>
-
-            <div class="duo">
-                <div class="duo-box duo-up">
-                    <h4>📤 改上游</h4>
-                    <p>自动扫描所有下游产物，列出受影响清单。要求同步更新，或标注 <code>[待同步]</code>。</p>
-                </div>
-                <div class="duo-box duo-down">
-                    <h4>📥 改下游</h4>
-                    <p>逐条比对是否超出上游范围。超出 → <b>先改上游</b>，禁止擅自扩展。</p>
-                </div>
-            </div>
-        </div>
-
-        <!-- 审计 -->
-        <div class="section">
-            <h2>🤖 自动审计</h2>
-            <table>
-                <tr>
-                    <th>检查项</th>
-                    <th>查什么</th>
-                    <th>例子</th>
-                </tr>
-                <tr>
-                    <td>编号连续性</td>
-                    <td>跳号 / 重复</td>
-                    <td>USER-001 后直接 USER-003</td>
-                </tr>
-                <tr>
-                    <td>上游缺失</td>
-                    <td>有无声明引用</td>
-                    <td>交互设计没写引用了哪个 PRD</td>
-                </tr>
-                <tr>
-                    <td>跨产物对齐</td>
-                    <td>下游是否漏了上游编号</td>
-                    <td>PRD 有 USER-002，交互没提到</td>
-                </tr>
-                <tr>
-                    <td>接口一致性</td>
-                    <td>§4 和 §13 数量是否一致</td>
-                    <td>§4 写了 5 个接口，§13 列了 4 个</td>
-                </tr>
-                <tr>
-                    <td>HTML 完整性</td>
-                    <td>UI 稿是否合格</td>
-                    <td>没 DOCTYPE / 没 upstream / 写了 onclick</td>
-                </tr>
-                <tr>
-                    <td>边界违规</td>
-                    <td>越界写了不该写的</td>
-                    <td>交互设计里写"按钮用 #ff0000"</td>
-                </tr>
-            </table>
-        </div>
-
-        <!-- 红线 -->
-        <div class="section">
-            <h2>🚦 两条红线</h2>
-            <div class="redline-grid">
-                <div class="redline-box redline-1">
-                    <h4>⛔ 改上游必须通知下游</h4>
-                    <p>禁止改了上游，下游还停留在旧版本</p>
-                </div>
-                <div class="redline-box redline-2">
-                    <h4>⛔ 改下游不能超出上游</h4>
-                    <p>想加新功能？先改 PRD</p>
-                </div>
-            </div>
-        </div>
-
-        <!-- 总结 -->
-        <div class="section">
-            <h2>📋 一句话</h2>
-            <div class="analogy">
-                <strong>类比：</strong>e2e-solution-guard 像建筑行业的<strong>图纸管理系统</strong>——确保每份图纸有编号、知道从哪份总图派生、改了总图自动通知相关图纸、施工队永远拿到最新版。价值不在"写得多快"，而在<strong>"改的时候不慌"</strong>。
-            </div>
-        </div>
-
-        <footer>
-            <p>e2e-solution-guard 机制解析报告</p>
-        </footer>
+<!-- ===== 核心原则 ===== -->
+<div class="card">
+    <h2>📐 核心原则</h2>
+    <div class="grid2">
+        <div class="item"><span class="icon">🎯</span><span><b>项目产物优先</b>：已有定义 > Skill 模板，未定义部分才参考模板</span></div>
+        <div class="item"><span class="icon">💬</span><span><b>对话式提问</b>：关键决策点主动引导用户确认，不一次性抛长问卷</span></div>
+        <div class="item"><span class="icon">🔍</span><span><b>先 gap 分析</b>：识别缺失信息和冲突后再输出，禁止基于模糊想法直接写</span></div>
+        <div class="item"><span class="icon">🚫</span><span><b>禁止脑补</b>：未定义的功能、字段、规则禁止自行补充</span></div>
+        <div class="item"><span class="icon">🛑</span><span><b>遇冲突必停</b>：需求不合理或与现有方案矛盾时明确提出质疑</span></div>
+        <div class="item"><span class="icon">📏</span><span><b>逐步推进</b>：一次只推进一个单元，确认无异常后再开始下一个</span></div>
     </div>
+</div>
+
+<!-- ===== 痛点 ===== -->
+<div class="card">
+    <h2>🔥 解决什么问题</h2>
+    <div class="grid4">
+        <div class="item"><span class="icon">📝</span><span>PRD 改了，技术方案和代码没同步</span></div>
+        <div class="item"><span class="icon">🔗</span><span>一个服务支撑多个模块，不知道影响范围</span></div>
+        <div class="item"><span class="icon">🎨</span><span>交互设计的状态，前端凭感觉写 CSS</span></div>
+        <div class="item"><span class="icon">🔍</span><span>代码写完了，找不到最初的需求来源</span></div>
+    </div>
+</div>
+
+<!-- ===== 全链路流程图 ===== -->
+<div class="card">
+    <h2>🗺️ 全链路：7 步 + 1 层</h2>
+    <p>想法 → PRD → 交互 → UI → 技术方案 → 测试 → 代码。顶层定义横向支撑所有步骤。</p>
+    <div class="diagram">
+        <svg viewBox="0 0 780 260" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <linearGradient id="g1" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="#6366f1"/>
+                    <stop offset="100%" stop-color="#8b5cf6"/>
+                </linearGradient>
+                <linearGradient id="g2" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="#0ea5e9"/>
+                    <stop offset="100%" stop-color="#06b6d4"/>
+                </linearGradient>
+            </defs>
+            <!-- Main pipeline -->
+            <rect x="10" y="20" width="90" height="44" rx="22" fill="url(#g1)"/>
+            <text x="55" y="48" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">💡 想法</text>
+
+            <text x="110" y="48" fill="#94a3b8" font-size="16">→</text>
+
+            <rect x="130" y="20" width="90" height="44" rx="22" fill="url(#g1)"/>
+            <text x="175" y="48" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">📋 PRD</text>
+
+            <text x="230" y="48" fill="#94a3b8" font-size="16">→</text>
+
+            <rect x="250" y="20" width="90" height="44" rx="22" fill="url(#g1)"/>
+            <text x="295" y="48" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">🎨 交互</text>
+
+            <text x="350" y="48" fill="#94a3b8" font-size="16">→</text>
+
+            <rect x="370" y="20" width="90" height="44" rx="22" fill="url(#g1)"/>
+            <text x="415" y="48" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">🖌️ UI</text>
+
+            <text x="470" y="48" fill="#94a3b8" font-size="16">→</text>
+
+            <rect x="490" y="20" width="90" height="44" rx="22" fill="url(#g1)"/>
+            <text x="535" y="48" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">⚡ 技术</text>
+
+            <text x="590" y="48" fill="#94a3b8" font-size="16">→</text>
+
+            <rect x="610" y="20" width="90" height="44" rx="22" fill="url(#g1)"/>
+            <text x="655" y="48" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">🧪 测试</text>
+
+            <text x="710" y="48" fill="#94a3b8" font-size="16">→</text>
+
+            <rect x="730" y="20" width="40" height="44" rx="22" fill="#334155"/>
+            <text x="750" y="48" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">💻</text>
+
+            <!-- Top-level layer -->
+            <rect x="10" y="100" width="760" height="56" rx="8" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1"/>
+            <text x="390" y="128" text-anchor="middle" fill="#475569" font-size="12" font-weight="600">🏛️ 项目顶层定义（横向支撑所有步骤）</text>
+            <text x="130" y="148" text-anchor="middle" fill="#64748b" font-size="11">PRD-顶层定义</text>
+            <text x="295" y="148" text-anchor="middle" fill="#64748b" font-size="11">交互-顶层定义</text>
+            <text x="415" y="148" text-anchor="middle" fill="#64748b" font-size="11">UI-顶层定义</text>
+            <text x="535" y="148" text-anchor="middle" fill="#64748b" font-size="11">技术-顶层定义</text>
+
+            <!-- Vertical dashed lines -->
+            <line x1="175" y1="64" x2="175" y2="100" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="4 4"/>
+            <line x1="295" y1="64" x2="295" y2="100" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="4 4"/>
+            <line x1="415" y1="64" x2="415" y2="100" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="4 4"/>
+            <line x1="535" y1="64" x2="535" y2="100" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="4 4"/>
+
+            <!-- Audit box -->
+            <rect x="10" y="190" width="760" height="50" rx="8" fill="#fffbeb" stroke="#f59e0b" stroke-width="1"/>
+            <text x="390" y="220" text-anchor="middle" fill="#92400e" font-size="12" font-weight="600">🔒 每步产出后 → 独立只读 subagent 审计 → 全部通过后才进入下一步</text>
+        </svg>
+    </div>
+</div>
+
+<!-- ===== 核心创新：多对多映射 ===== -->
+<div class="card">
+    <h2>⚡ 核心：PRD 与技术方案不是一一对应</h2>
+    <p>传统做法是一份 PRD 配一份技术方案。实际工程中，一个服务支撑多个模块，一个功能涉及多个服务。</p>
+    <div class="diagram">
+        <svg viewBox="0 0 780 240" xmlns="http://www.w3.org/2000/svg">
+            <!-- Left: PRD modules -->
+            <rect x="20" y="20" width="160" height="44" rx="8" fill="#e0e7ff" stroke="#6366f1" stroke-width="2"/>
+            <text x="100" y="48" text-anchor="middle" fill="#312e81" font-size="13" font-weight="600">📋 用户管理 PRD</text>
+
+            <rect x="20" y="90" width="160" height="44" rx="8" fill="#e0e7ff" stroke="#6366f1" stroke-width="2"/>
+            <text x="100" y="118" text-anchor="middle" fill="#312e81" font-size="13" font-weight="600">📋 订单管理 PRD</text>
+
+            <rect x="20" y="160" width="160" height="44" rx="8" fill="#e0e7ff" stroke="#6366f1" stroke-width="2"/>
+            <text x="100" y="188" text-anchor="middle" fill="#312e81" font-size="13" font-weight="600">📋 权限管理 PRD</text>
+
+            <!-- Right: Tech schemes -->
+            <rect x="580" y="20" width="180" height="44" rx="8" fill="#dcfce7" stroke="#22c55e" stroke-width="2"/>
+            <text x="670" y="48" text-anchor="middle" fill="#14532d" font-size="13" font-weight="600">⚡ user-service</text>
+
+            <rect x="580" y="90" width="180" height="44" rx="8" fill="#dcfce7" stroke="#22c55e" stroke-width="2"/>
+            <text x="670" y="118" text-anchor="middle" fill="#14532d" font-size="13" font-weight="600">⚡ order-service</text>
+
+            <rect x="580" y="160" width="180" height="44" rx="8" fill="#dcfce7" stroke="#22c55e" stroke-width="2"/>
+            <text x="670" y="188" text-anchor="middle" fill="#14532d" font-size="13" font-weight="600">⚡ payment-service</text>
+
+            <!-- Cross lines: many-to-many -->
+            <!-- 用户管理 → user-service -->
+            <line x1="180" y1="42" x2="580" y2="42" stroke="#6366f1" stroke-width="2" opacity="0.6"/>
+            <!-- 订单管理 → user-service -->
+            <line x1="180" y1="112" x2="580" y2="42" stroke="#6366f1" stroke-width="2" opacity="0.4" stroke-dasharray="6 3"/>
+            <!-- 订单管理 → order-service -->
+            <line x1="180" y1="112" x2="580" y2="112" stroke="#6366f1" stroke-width="2" opacity="0.6"/>
+            <!-- 订单管理 → payment-service -->
+            <line x1="180" y1="112" x2="580" y2="182" stroke="#6366f1" stroke-width="2" opacity="0.6"/>
+            <!-- 权限管理 → user-service -->
+            <line x1="180" y1="182" x2="580" y2="42" stroke="#6366f1" stroke-width="2" opacity="0.4" stroke-dasharray="6 3"/>
+
+            <!-- Center label -->
+            <rect x="310" y="100" width="160" height="40" rx="20" fill="#0f172a"/>
+            <text x="390" y="125" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">功能点编号关联</text>
+
+            <!-- Legend -->
+            <text x="390" y="230" text-anchor="middle" fill="#64748b" font-size="11">实线 = 直接支撑 · 虚线 = 间接引用</text>
+        </svg>
+    </div>
+    <p style="font-size:0.9em;color:#64748b;">PRD §3 增加「技术实现单元」列，技术方案 §1 声明「覆盖功能点」，双向验证确保无遗漏。</p>
+</div>
+
+<!-- ===== 产物组织 ===== -->
+<div class="card">
+    <h2>🏗️ 产物组织</h2>
+    <p>业务产物按模块聚合，技术方案按服务聚合。目录结构反映天然边界，关联关系由内容表达。</p>
+    <div class="diagram">
+        <svg viewBox="0 0 780 340" xmlns="http://www.w3.org/2000/svg">
+            <!-- top-level -->
+            <rect x="20" y="20" width="740" height="50" rx="8" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1"/>
+            <text x="390" y="40" text-anchor="middle" fill="#475569" font-size="12" font-weight="600">📁 top-level/ — 项目顶层定义</text>
+            <text x="200" y="58" text-anchor="middle" fill="#64748b" font-size="11">prd-top-level · interaction-top-level · ui-top-level · tech-top-level</text>
+
+            <!-- modules -->
+            <rect x="20" y="90" width="460" height="220" rx="8" fill="#e0e7ff" stroke="#6366f1" stroke-width="1" stroke-dasharray="6 3"/>
+            <text x="250" y="112" text-anchor="middle" fill="#312e81" font-size="12" font-weight="600">📁 modules/ — 按业务模块聚合</text>
+
+            <rect x="40" y="130" width="130" height="160" rx="6" fill="#fff" stroke="#818cf8" stroke-width="1"/>
+            <text x="105" y="150" text-anchor="middle" fill="#312e81" font-size="11" font-weight="600">用户管理/</text>
+            <text x="105" y="170" text-anchor="middle" fill="#64748b" font-size="10">prd.md</text>
+            <text x="105" y="188" text-anchor="middle" fill="#64748b" font-size="10">交互设计-消费者.md</text>
+            <text x="105" y="206" text-anchor="middle" fill="#64748b" font-size="10">ui-消费者-web.html</text>
+            <text x="105" y="224" text-anchor="middle" fill="#64748b" font-size="10">测试报告.md</text>
+
+            <rect x="185" y="130" width="130" height="160" rx="6" fill="#fff" stroke="#818cf8" stroke-width="1"/>
+            <text x="250" y="150" text-anchor="middle" fill="#312e81" font-size="11" font-weight="600">订单管理/</text>
+            <text x="250" y="170" text-anchor="middle" fill="#64748b" font-size="10">prd.md</text>
+            <text x="250" y="188" text-anchor="middle" fill="#64748b" font-size="10">交互设计-消费者.md</text>
+            <text x="250" y="206" text-anchor="middle" fill="#64748b" font-size="10">ui-消费者-web.html</text>
+            <text x="250" y="224" text-anchor="middle" fill="#64748b" font-size="10">测试报告.md</text>
+
+            <rect x="330" y="130" width="130" height="160" rx="6" fill="#fff" stroke="#818cf8" stroke-width="1"/>
+            <text x="395" y="150" text-anchor="middle" fill="#312e81" font-size="11" font-weight="600">权限管理/</text>
+            <text x="395" y="170" text-anchor="middle" fill="#64748b" font-size="10">prd.md</text>
+            <text x="395" y="188" text-anchor="middle" fill="#64748b" font-size="10">交互设计-后台.md</text>
+            <text x="395" y="206" text-anchor="middle" fill="#64748b" font-size="10">ui-后台-web.html</text>
+
+            <!-- tech -->
+            <rect x="500" y="90" width="260" height="220" rx="8" fill="#dcfce7" stroke="#22c55e" stroke-width="1" stroke-dasharray="6 3"/>
+            <text x="630" y="112" text-anchor="middle" fill="#14532d" font-size="12" font-weight="600">📁 tech/ — 按服务聚合</text>
+
+            <rect x="520" y="130" width="220" height="36" rx="6" fill="#fff" stroke="#4ade80" stroke-width="1"/>
+            <text x="630" y="154" text-anchor="middle" fill="#14532d" font-size="11">user-service.md</text>
+
+            <rect x="520" y="176" width="220" height="36" rx="6" fill="#fff" stroke="#4ade80" stroke-width="1"/>
+            <text x="630" y="200" text-anchor="middle" fill="#14532d" font-size="11">order-service.md</text>
+
+            <rect x="520" y="222" width="220" height="36" rx="6" fill="#fff" stroke="#4ade80" stroke-width="1"/>
+            <text x="630" y="246" text-anchor="middle" fill="#14532d" font-size="11">payment-service.md</text>
+
+            <rect x="520" y="268" width="220" height="28" rx="6" fill="#fff" stroke="#4ade80" stroke-width="1"/>
+            <text x="630" y="288" text-anchor="middle" fill="#14532d" font-size="11">notification-service.md</text>
+        </svg>
+    </div>
+</div>
+
+<!-- ===== 审计 ===== -->
+<div class="card">
+    <h2>🤖 审计：机械 + 语义</h2>
+    <p>所有审计由<strong>独立只读 subagent</strong>执行，主会话只做汇总。禁止后台执行（`run_in_background=false`），必须等待结果返回。</p>
+    <div class="grid2">
+        <div class="item"><span class="icon">📊</span><span><b>机械审计</b>：编号连续性、表格格式、上游引用、必填章节</span></div>
+        <div class="item"><span class="icon">🧠</span><span><b>语义审计</b>：目标一致性、业务规则、跨章节引用、验收标准</span></div>
+    </div>
+</div>
+
+<!-- ===== 两条红线 ===== -->
+<div class="card">
+    <h2>🚦 两条红线</h2>
+    <div class="redline">
+        <div class="red red-1">
+            <h4>⛔ 改上游必须通知下游</h4>
+            <p>改了 PRD → 扫描所有涉及的技术方案、交互、UI、测试，同步更新或标注 [待同步]</p>
+        </div>
+        <div class="red red-2">
+            <h4>⛔ 改下游不能超出上游</h4>
+            <p>技术方案想加新接口 → 先确认 PRD 中有对应功能点，禁止擅自扩展</p>
+        </div>
+    </div>
+</div>
+
+<!-- ===== 总结 ===== -->
+<div class="card">
+    <h2>📋 一句话</h2>
+    <div class="analogy">
+        <strong>类比：</strong>e2e-solution-guard 像建筑行业的<strong>图纸管理系统</strong>——总图派生各专业图纸，改了结构图自动通知机电和装修，施工队按图施工，竣工时逐层核对。价值不在"画得有多快"，而在<strong>"改的时候不慌、查的时候有据"</strong>。
+    </div>
+</div>
+
+<footer>e2e-solution-guard 机制解析报告 · v3.1</footer>
+
+</div>
 </body>
 </html>
