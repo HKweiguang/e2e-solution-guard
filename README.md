@@ -198,7 +198,7 @@ docs/
 │       ├── ui.html
 │       └── 测试报告.md
 └── tech/                            # 技术方案按服务聚合
-    ├── user-service.md              # 支撑用户管理、权限管理
+    ├── user-service.md              # 支撑用户管理、权限管理、订单管理
     ├── order-service.md             # 支撑订单管理
     ├── payment-service.md           # 支撑订单管理
     └── notification-service.md      # 公共，被多个模块共用
