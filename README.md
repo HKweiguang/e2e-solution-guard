@@ -146,7 +146,7 @@ e2e-solution-guard/
             │  └────────────┘  │
             └──────────────────┘
 
-多角色项目（如 C端 + 管理后台）：模块内增加 `prd-{角色}.md`、`交互设计-{角色}.md`、`ui-{角色}-{设备}.html`。
+多角色项目（如 C端 + 管理后台）：模块内增加 `交互设计-{角色}.md`、`ui-{角色}-{设备}.html`，PRD 不分角色（一个模块一个 PRD，内部按角色分章节）。
 ```
 
 **关键设计**：
@@ -168,9 +168,7 @@ docs/
 │   ├── 项目-UI-顶层定义.md
 │   └── 项目-技术-顶层定义.md
 ├── 用户管理/
-│   ├── prd.md                    # 共享：用户实体、状态值
-│   ├── prd-{角色A}.md             # 角色 A 特有功能
-│   ├── prd-{角色B}.md             # 角色 B 特有功能
+│   ├── prd.md                    # 统一 PRD，包含所有角色功能点
 │   ├── 交互设计-{角色A}.md         # 角色 A 交互
 │   ├── ui-{角色A}-web.html        # 角色 A web 视觉稿
 │   ├── ui-{角色A}-app.html        # 角色 A App 视觉稿
@@ -179,10 +177,7 @@ docs/
 │   ├── 技术方案.md                # 统一技术方案
 │   └── 测试报告.md
 ├── 订单管理/
-│   ├── prd.md                    # 共享：订单实体、状态值
-│   ├── prd-{角色A}.md             # 角色 A 特有功能
-│   ├── prd-{角色B}.md             # 角色 B 特有功能
-│   ├── prd-{角色C}.md             # 角色 C 特有功能
+│   ├── prd.md                    # 统一 PRD，包含所有角色功能点
 │   ├── 交互设计-{角色A}.md
 │   ├── ui-{角色A}-web.html
 │   ├── ui-{角色A}-app.html
@@ -235,13 +230,13 @@ docs/
 
 ```bash
 # 全量审计
-python3 scripts/doc-audit.py prd-{角色A}.md --type prd
+python3 scripts/doc-audit.py prd.md --type prd
 
 # 增量审计（只检查变更的功能点）
 python3 scripts/doc-audit.py prd.md --type prd --delta USER-001,USER-003
 
 # 扫描下游影响
-python3 scripts/doc-audit.py prd-{角色A}.md --type prd --scan-downstream ./docs/
+python3 scripts/doc-audit.py prd.md --type prd --scan-downstream ./docs/
 ```
 
 审计覆盖：

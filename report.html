@@ -8,17 +8,16 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            line-height: 1.8;
+            line-height: 1.7;
             color: #1a202c;
             background: #f7fafc;
         }
         .container {
-            max-width: 840px;
+            max-width: 880px;
             margin: 0 auto;
             padding: 40px 20px;
         }
 
-        /* Header */
         header {
             text-align: center;
             padding: 48px 20px;
@@ -27,17 +26,9 @@
             border-radius: 16px;
             margin-bottom: 36px;
         }
-        header h1 {
-            font-size: 2em;
-            margin-bottom: 8px;
-        }
-        header p {
-            opacity: 0.9;
-            max-width: 520px;
-            margin: 0 auto;
-        }
+        header h1 { font-size: 2em; margin-bottom: 8px; }
+        header p { opacity: 0.9; max-width: 520px; margin: 0 auto; }
 
-        /* Section */
         .section {
             background: white;
             border-radius: 12px;
@@ -46,63 +37,35 @@
             box-shadow: 0 1px 3px rgba(0,0,0,0.06);
         }
         .section h2 {
-            font-size: 1.4em;
+            font-size: 1.3em;
             color: #2d3748;
-            margin-bottom: 16px;
+            margin-bottom: 20px;
             display: flex;
             align-items: center;
             gap: 10px;
         }
-        .section h3 {
-            font-size: 1.1em;
+        .section > p {
             color: #4a5568;
-            margin: 24px 0 12px;
-        }
-        .section p {
-            color: #4a5568;
-            margin-bottom: 12px;
-        }
-        .section ul {
-            margin: 10px 0 10px 22px;
-            color: #4a5568;
-        }
-        .section li {
-            margin-bottom: 8px;
-        }
-        .section code {
-            background: #edf2f7;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 0.9em;
+            margin-bottom: 16px;
         }
 
-        /* Analogy box */
-        .analogy {
-            background: #fffbeb;
-            border-left: 4px solid #f59e0b;
-            padding: 16px 20px;
-            border-radius: 0 8px 8px 0;
-            margin: 16px 0;
+        /* Pain points */
+        .pain-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
         }
-        .analogy strong {
-            color: #92400e;
-        }
-
-        /* Diagram */
-        .diagram {
+        .pain-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
             background: #f8fafc;
             border: 1px solid #e2e8f0;
             border-radius: 10px;
-            padding: 24px;
-            margin: 16px 0;
-            overflow-x: auto;
+            padding: 16px;
         }
-        .diagram pre {
-            font-family: "SF Mono", Monaco, monospace;
-            font-size: 0.85em;
-            line-height: 1.7;
-            color: #2d3748;
-        }
+        .pain-item .icon { font-size: 1.6em; flex-shrink: 0; }
+        .pain-item p { font-size: 0.9em; color: #4a5568; margin: 0; }
 
         /* Pipeline */
         .pipeline {
@@ -111,7 +74,7 @@
             justify-content: center;
             flex-wrap: wrap;
             gap: 6px;
-            margin: 20px 0;
+            margin: 24px 0;
         }
         .pipe-step {
             background: white;
@@ -122,75 +85,173 @@
             font-weight: 600;
             font-size: 0.9em;
         }
-        .pipe-arrow {
-            color: #94a3b8;
-            font-size: 1.2em;
-        }
+        .pipe-arrow { color: #94a3b8; font-size: 1.2em; }
 
-        /* Product line cards */
-        .pl-grid {
+        /* Product cards */
+        .prod-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
             gap: 12px;
-            margin: 16px 0;
+            margin-top: 16px;
         }
-        .pl-card {
+        .prod-card {
             background: #f8fafc;
             border: 1px solid #e2e8f0;
             border-radius: 10px;
-            padding: 18px;
+            padding: 20px 12px;
+            text-align: center;
         }
-        .pl-card h4 {
-            font-size: 1em;
+        .prod-card .icon { font-size: 2em; margin-bottom: 8px; }
+        .prod-card h4 { font-size: 0.95em; color: #2d3748; margin-bottom: 4px; }
+        .prod-card p { font-size: 0.8em; color: #64748b; margin: 0; }
+        .prod-card .tag {
+            display: inline-block;
+            background: #e0e7ff;
             color: #4338ca;
-            margin-bottom: 8px;
-        }
-        .pl-card p {
-            font-size: 0.9em;
-            color: #64748b;
-            margin: 0;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.72em;
+            margin-top: 6px;
         }
 
-        /* Comparison */
-        .compare {
+        /* Tree */
+        .tree {
+            background: #0f172a;
+            border-radius: 10px;
+            padding: 24px;
+            margin: 16px 0;
+            font-family: "SF Mono", Monaco, monospace;
+            font-size: 0.85em;
+            line-height: 1.8;
+            color: #cbd5e1;
+            overflow-x: auto;
+        }
+        .tree .role { color: #a78bfa; font-weight: 600; }
+        .tree .device { color: #34d399; }
+        .tree .file { color: #e2e8f0; }
+        .tree .comment { color: #64748b; }
+        .tree .folder { color: #fbbf24; }
+
+        /* Tags row */
+        .tags-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 16px;
+        }
+        .tag-item {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            color: #166534;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.85em;
+        }
+
+        /* Rules boxes */
+        .rules-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-top: 16px;
+        }
+        .rules-box {
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+            border: 1px solid #bae6fd;
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .rules-box h4 {
+            color: #0369a1;
+            margin-bottom: 12px;
+            font-size: 1em;
+        }
+        .rule-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            margin-bottom: 8px;
+            font-size: 0.88em;
+            color: #334155;
+        }
+        .rule-row .num {
+            background: #0284c7;
+            color: white;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75em;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        /* Platform matrix */
+        .plat-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-top: 16px;
+        }
+        .plat-card {
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 18px;
+        }
+        .plat-card h4 {
+            font-size: 1em;
+            color: #4338ca;
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e0e7ff;
+        }
+        .plat-card li {
+            font-size: 0.85em;
+            color: #4a5568;
+            margin-bottom: 5px;
+        }
+
+        /* Flow diagram */
+        .flow-box {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 24px;
+            margin: 16px 0;
+        }
+        .flow-box pre {
+            font-family: "SF Mono", Monaco, monospace;
+            font-size: 0.85em;
+            line-height: 1.8;
+            color: #334155;
+        }
+
+        /* Two columns for upstream/downstream */
+        .duo {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 12px;
-            margin: 16px 0;
+            margin-top: 16px;
         }
-        .compare-box {
+        .duo-box {
             padding: 18px;
             border-radius: 10px;
         }
-        .compare-good {
-            background: #f0fdf4;
-            border: 1px solid #bbf7d0;
-        }
-        .compare-bad {
-            background: #fef2f2;
-            border: 1px solid #fecaca;
-        }
-        .compare-box h4 {
-            margin-bottom: 10px;
-            font-size: 1em;
-        }
-        .compare-good h4 { color: #166534; }
-        .compare-bad h4 { color: #991b1b; }
-        .compare-box ul {
-            margin: 0;
-            padding-left: 18px;
-            font-size: 0.9em;
-            color: #4a5568;
-        }
-        .compare-box li {
-            margin-bottom: 6px;
-        }
+        .duo-up { background: #fef2f2; border: 2px solid #fca5a5; }
+        .duo-down { background: #fff7ed; border: 2px solid #fdba74; }
+        .duo-box h4 { margin-bottom: 8px; font-size: 1em; }
+        .duo-up h4 { color: #991b1b; }
+        .duo-down h4 { color: #9a3412; }
+        .duo-box p { font-size: 0.9em; color: #4a5568; margin: 0; }
 
         /* Audit table */
         table {
             width: 100%;
             border-collapse: collapse;
-            margin: 14px 0;
+            margin-top: 16px;
             font-size: 0.9em;
         }
         th, td {
@@ -198,38 +259,36 @@
             text-align: left;
             border-bottom: 1px solid #e2e8f0;
         }
-        th {
-            background: #f7fafc;
-            font-weight: 600;
-            color: #2d3748;
-        }
-        td {
-            color: #4a5568;
-        }
+        th { background: #f7fafc; font-weight: 600; color: #2d3748; }
+        td { color: #4a5568; }
 
-        /* Joint layer highlight */
-        .joint {
-            background: #fff7ed;
-            border: 2px dashed #fdba74;
-            border-radius: 10px;
+        /* Red lines */
+        .redline-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 16px;
+        }
+        .redline-box {
             padding: 20px;
-            margin: 16px 0;
+            border-radius: 10px;
+            text-align: center;
         }
-        .joint h4 {
-            color: #c2410c;
-            margin-bottom: 10px;
-        }
+        .redline-1 { background: #fef2f2; border: 2px solid #ef4444; }
+        .redline-2 { background: #fff7ed; border: 2px solid #f97316; }
+        .redline-box h4 { margin-bottom: 8px; font-size: 1.1em; }
+        .redline-1 h4 { color: #991b1b; }
+        .redline-2 h4 { color: #9a3412; }
+        .redline-box p { font-size: 0.9em; color: #4a5568; margin: 0; }
 
-        /* Tag */
-        .tag {
-            display: inline-block;
-            background: #e0e7ff;
-            color: #4338ca;
-            padding: 3px 10px;
-            border-radius: 12px;
-            font-size: 0.82em;
-            margin: 3px 3px 3px 0;
+        /* Analogy */
+        .analogy {
+            background: #fffbeb;
+            border-left: 4px solid #f59e0b;
+            padding: 16px 20px;
+            border-radius: 0 8px 8px 0;
         }
+        .analogy strong { color: #92400e; }
 
         footer {
             text-align: center;
@@ -239,8 +298,11 @@
         }
 
         @media (max-width: 640px) {
-            .compare { grid-template-columns: 1fr; }
-            .pl-grid { grid-template-columns: 1fr; }
+            .pain-grid { grid-template-columns: 1fr; }
+            .rules-grid { grid-template-columns: 1fr; }
+            .plat-grid { grid-template-columns: 1fr; }
+            .duo { grid-template-columns: 1fr; }
+            .redline-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -251,22 +313,32 @@
             <p>让"从想法到代码"的每一步都有迹可循、有据可依</p>
         </header>
 
+        <!-- 问题 -->
         <div class="section">
-            <h2>💡 它解决什么问题</h2>
-            <p>做软件时，你有没有遇到过这些情况：</p>
-            <ul>
-                <li>PRD 改了功能，技术方案和测试用例没人同步更新</li>
-                <li>设计师画的交互状态，前端不知道怎么实现，凭感觉写 CSS</li>
-                <li>同一功能在 App、Web、管理后台长得不一样，用户困惑</li>
-                <li>代码写完了，回头找不到这个功能最初的需求来源</li>
-            </ul>
-            <p>e2e-solution-guard 就是用来<strong>防止这些断裂</strong>的。它不是帮你写文档，而是帮你<strong>管理从想法到代码的完整链路</strong>——让每个环节都知道自己从哪来、该去哪、边界在哪。</p>
+            <h2>💡 解决什么问题</h2>
+            <div class="pain-grid">
+                <div class="pain-item">
+                    <span class="icon">📝</span>
+                    <p>PRD 改了功能，下游技术方案和测试用例没同步</p>
+                </div>
+                <div class="pain-item">
+                    <span class="icon">🎨</span>
+                    <p>交互设计的状态，前端凭感觉写 CSS，没对齐</p>
+                </div>
+                <div class="pain-item">
+                    <span class="icon">📱</span>
+                    <p>同一功能在 App、Web 长得不一样，用户困惑</p>
+                </div>
+                <div class="pain-item">
+                    <span class="icon">🔍</span>
+                    <p>代码写完了，找不到最初的需求来源</p>
+                </div>
+            </div>
         </div>
 
+        <!-- 全貌 -->
         <div class="section">
-            <h2>🗺️ 一张图看懂全貌</h2>
-            <p>想象你要盖一栋楼。你不能直接让工人搬砖，得先有图纸、有结构图、有材料清单、有验收标准。软件工程也一样：</p>
-
+            <h2>🗺️ 全貌</h2>
             <div class="pipeline">
                 <span class="pipe-step">💡 想法</span>
                 <span class="pipe-arrow">→</span>
@@ -283,204 +355,232 @@
                 <span class="pipe-step">💻 代码</span>
             </div>
 
-            <p>每一步的产物都<strong>明确声明"我从哪来"</strong>（上游文档），系统能自动追踪这些关系。改前面的图纸，后面的施工队会收到通知。</p>
+            <div class="prod-grid">
+                <div class="prod-card">
+                    <div class="icon">📋</div>
+                    <h4>PRD</h4>
+                    <p>功能说明书</p>
+                    <span class="tag">Markdown</span>
+                </div>
+                <div class="prod-card">
+                    <div class="icon">🎨</div>
+                    <h4>交互设计</h4>
+                    <p>结构+行为</p>
+                    <span class="tag">Markdown+SVG</span>
+                </div>
+                <div class="prod-card">
+                    <div class="icon">🖌️</div>
+                    <h4>UI 设计</h4>
+                    <p>视觉实现</p>
+                    <span class="tag">HTML</span>
+                </div>
+                <div class="prod-card">
+                    <div class="icon">⚡</div>
+                    <h4>技术方案</h4>
+                    <p>施工方案</p>
+                    <span class="tag">Markdown</span>
+                </div>
+                <div class="prod-card">
+                    <div class="icon">🧪</div>
+                    <h4>测试报告</h4>
+                    <p>验收单</p>
+                    <span class="tag">Markdown</span>
+                </div>
+            </div>
         </div>
 
+        <!-- 产物组织 -->
         <div class="section">
-            <h2>📦 5 种产物长什么样</h2>
-            <table>
-                <tr>
-                    <th>产物</th>
-                    <th>形式</th>
-                    <th>打个比方</th>
-                    <th>不能写什么</th>
-                </tr>
-                <tr>
-                    <td><strong>PRD</strong></td>
-                    <td>Markdown</td>
-                    <td>建筑的功能说明书：有几个房间、每个房间干什么用</td>
-                    <td>不写怎么施工、不装修方案</td>
-                </tr>
-                <tr>
-                    <td><strong>交互设计</strong></td>
-                    <td>Markdown + SVG 图</td>
-                    <td>结构图：门在哪、楼梯怎么摆、开关按下去灯怎么亮</td>
-                    <td>不写墙刷什么颜色、灯什么造型</td>
-                </tr>
-                <tr>
-                    <td><strong>UI 设计</strong></td>
-                    <td>独立 HTML 文件</td>
-                    <td>装修效果图：墙面颜色、家具尺寸、灯光氛围</td>
-                    <td>不写开关怎么触发、电路怎么走</td>
-                </tr>
-                <tr>
-                    <td><strong>技术方案</strong></td>
-                    <td>Markdown</td>
-                    <td>施工方案：用什么材料、电路怎么走、承重怎么算</td>
-                    <td>不写房间功能、不装修效果</td>
-                </tr>
-                <tr>
-                    <td><strong>测试报告</strong></td>
-                    <td>Markdown</td>
-                    <td>验收单：每个功能测了没、有没有 bug、能不能交付</td>
-                    <td>不写功能定义、不施工方案</td>
-                </tr>
-            </table>
-        </div>
+            <h2>🏗️ 产物组织：先角色，后设备</h2>
+            <p>角色和设备不是同一级。先按角色分文件，再在角色内按设备分。</p>
 
-        <div class="section">
-            <h2>🔗 "我从哪来"怎么声明</h2>
-            <p>每份产物开头都有一张"家谱表"，写清楚它引用了哪些上游文档。就像论文的参考文献：</p>
+            <div class="tree">
+<span class="role">角色</span> → <span class="device">设备</span>
 
-            <div class="diagram">
-<pre>📋 交互设计-v1-首页.md
-
-上游文档：
-| 产物名称          | 类型     | 引用范围               |
-|------------------|---------|-----------------------|
-| prd-{角色A}.md        | PRD     | USER-{标识A}-001 – USER-{标识A}-003 |
-| 项目交互-顶层定义  | 规范继承 | §2 交互状态规范、§4 交互规范 |
-
---- 正文开始 ---</pre>
+<span class="folder">📁 用户管理/</span>
+├── <span class="file">prd.md</span>                    <span class="comment">← 统一 PRD，所有角色功能点</span>
+├── <span class="file">交互设计-C端.md</span>           <span class="comment">← C 端交互</span>
+├── <span class="file">交互设计-管理后台.md</span>     <span class="comment">← 管理后台交互</span>
+├── <span class="file">ui-C端-web.html</span>         <span class="comment">← C 端 Web</span>
+├── <span class="file">ui-C端-app.html</span>         <span class="comment">← C 端 App</span>
+├── <span class="file">ui-管理后台-web.html</span>    <span class="comment">← 管理后台 Web</span>
+├── <span class="file">技术方案.md</span>             <span class="comment">← 统一技术方案</span>
+└── <span class="file">测试报告.md</span>
             </div>
 
-            <p>HTML 产物（UI 设计）也用类似的方式，只不过写在注释里：</p>
-            <div class="diagram">
-<pre>&lt;!-- upstream: 交互设计-v1-首页.md, 项目 UI-顶层定义.md --&gt;</pre>
-            </div>
-
-            <p>有了这张"家谱表"，系统就能回答两个问题：</p>
-            <ul>
-                <li><strong>改上游时</strong>：自动扫描所有"子孙后代"，告诉你哪些产物受影响</li>
-                <li><strong>改下游时</strong>：检查你的修改有没有"超出祖辈规定的范围"</li>
-            </ul>
-        </div>
-
-        <div class="section">
-            <h2>🔧 关节层：以前没人管的地方</h2>
-            <p>传统流程里，交互设计说"这个按钮有禁用态"，UI 设计画了灰色，前端开发时凭经验写了个 <code>.disabled</code>。三个人心里想的可能是同一件事，但<strong>没有一张纸把对应关系写下来</strong>。</p>
-
-            <div class="joint">
-                <h4>🦴 关节层</h4>
-                <p>现在要求显式声明这些对应关系，写在产物里，而不是散落在各人的脑子里：</p>
-                <ul>
-                    <li><strong>状态映射表</strong>：交互设计中的"禁用态" → UI 中的 <code>.disabled</code> → Token <code>--color-disabled</code> → 技术方案中的 Button 组件 disabled 属性</li>
-                    <li><strong>力学约束</strong>：按钮按下去多久要反馈？加载超时多久转错误态？以前散落在各处，现在统一写在交互设计里</li>
-                    <li><strong>响应式适配</strong>：手机端表格变成卡片列表，这个决策权以前模糊，现在明确归属交互设计</li>
-                </ul>
+            <div class="tags-row">
+                <span class="tag-item">📌 一个模块一个 PRD</span>
+                <span class="tag-item">📌 交互设计按角色分</span>
+                <span class="tag-item">📌 UI 按角色+设备分</span>
+                <span class="tag-item">📌 技术方案统一</span>
             </div>
         </div>
 
+        <!-- 通用规则 -->
         <div class="section">
-            <h2>📱 多端支持：同一模块，不同面孔</h2>
-            <p>一个模块可能需要服务不同的端或用户群体。同一套底层能力，在不同端呈现不同交互：</p>
+            <h2>📐 顶层定义 = 通用规则仓库</h2>
+            <p>跨模块共享的规则写在顶层定义里，模块级产物直接引用，禁止擅自扩展。</p>
 
-            <div class="pl-grid">
-                <div class="pl-card">
-                    <h4>📱 C 端用户</h4>
-                    <p>注册、登录、编辑头像、修改密码</p>
+            <div class="rules-grid">
+                <div class="rules-box">
+                    <h4>🎮 交互-顶层定义</h4>
+                    <div class="rule-row"><span class="num">1</span><span><b>交互令牌</b> — 状态色、焦点环、动效分级</span></div>
+                    <div class="rule-row"><span class="num">2</span><span><b>状态规范</b> — 6 基础 + 4 异步状态</span></div>
+                    <div class="rule-row"><span class="num">3</span><span><b>反馈规范</b> — 时效红线、动效分级、缓动曲线</span></div>
+                    <div class="rule-row"><span class="num">4</span><span><b>交互规范</b> — 导航、页面层级、手势、组件行为</span></div>
+                    <div class="rule-row"><span class="num">5</span><span><b>平台交互规范</b> — Web/App/小程序交互差异</span></div>
                 </div>
-                <div class="pl-card">
-                    <h4>🖥️ 管理后台</h4>
-                    <p>用户表格、批量禁用、权限分配、数据导出</p>
-                </div>
-                <div class="pl-card">
-                    <h4>🚗 车载系统</h4>
-                    <p>人脸识别自动登录、语音控制、极简大按钮</p>
-                </div>
-                <div class="pl-card">
-                    <h4>⌚ 手表</h4>
-                    <p>查看信息、接收通知、旋转表冠操作</p>
+                <div class="rules-box">
+                    <h4>🎨 UI-顶层定义</h4>
+                    <div class="rule-row"><span class="num">1</span><span><b>设计令牌</b> — Token 命名、三级映射</span></div>
+                    <div class="rule-row"><span class="num">2</span><span><b>色彩系统</b> — 调色板、色阶、色彩角色</span></div>
+                    <div class="rule-row"><span class="num">3</span><span><b>字体系统</b> — 家族、字号层级、字重</span></div>
+                    <div class="rule-row"><span class="num">4</span><span><b>间距与布局</b> — 基础单位、栅格、断点</span></div>
+                    <div class="rule-row"><span class="num">5</span><span><b>组件库</b> — 分类、全局状态、清单</span></div>
+                    <div class="rule-row"><span class="num">6</span><span><b>平台视觉规范</b> — Web/App/小程序视觉差异</span></div>
                 </div>
             </div>
-
-            <p>按<strong>模块聚合</strong>：同一模块的所有步骤产物（PRD→交互→UI→技术→测试）放在一起。模块内的多端差异在交互/UI 产物中声明，变更可追溯。</p>
         </div>
 
+        <!-- 平台差异 -->
         <div class="section">
-            <h2>🤖 自动审计：机器能查的，不让人来</h2>
-            <p>系统内置一个 Python 脚本（标准库 only，无依赖），能自动查出这些低级错误：</p>
+            <h2>📱 平台差异：角色内不同设备的交互/视觉差异</h2>
+            <p>同一角色下，Web、App、小程序的交互和视觉差异，在顶层定义中统一声明。</p>
 
+            <div class="plat-grid">
+                <div class="plat-card">
+                    <h4>🌐 Web 端</h4>
+                    <ul>
+                        <li>鼠标 hover / 右键菜单</li>
+                        <li>键盘 Tab 聚焦</li>
+                        <li>Ctrl+S / Ctrl+F 快捷键</li>
+                        <li>触摸支持（二合一）</li>
+                    </ul>
+                </div>
+                <div class="plat-card">
+                    <h4>📱 App 端</h4>
+                    <ul>
+                        <li>点击 / 长按 / 滑动 / 双指缩放</li>
+                        <li>系统返回键 / 顶部返回</li>
+                        <li>软键盘 / 语音 / 扫码</li>
+                        <li>推送 / 本地通知</li>
+                    </ul>
+                </div>
+                <div class="plat-card">
+                    <h4>💬 小程序</h4>
+                    <ul>
+                        <li>右上角分享 / 按钮分享</li>
+                        <li>下拉刷新</li>
+                        <li>调用扫码能力</li>
+                        <li>页面生命周期</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- 上下游 -->
+        <div class="section">
+            <h2>🔗 上下游追溯</h2>
+            <p>每份产物开头声明「我从哪来」，系统据此建立依赖网络。</p>
+
+            <div class="flow-box">
+<pre>        📋 PRD (上游)
+           │ 引用 USER-001
+           ▼
+    ┌─────────────┐
+    │  🎨 交互设计  │  ← 也引用 交互-顶层定义 §2, §4, §6
+    └─────────────┘
+           │ 引用 PAGE-001
+           ▼
+    ┌─────────────┐
+    │  🖌️ UI 设计   │  ← 也引用 UI-顶层定义 Token/组件库
+    └─────────────┘
+           │ 引用接口
+           ▼
+    ┌─────────────┐
+    │  ⚡ 技术方案  │  ← 也引用 技术-顶层定义 §4, §5
+    └─────────────┘
+           │ 引用功能+异常
+           ▼
+    ┌─────────────┐
+    │  🧪 测试报告  │
+    └─────────────┘</pre>
+            </div>
+
+            <div class="duo">
+                <div class="duo-box duo-up">
+                    <h4>📤 改上游</h4>
+                    <p>自动扫描所有下游产物，列出受影响清单。要求同步更新，或标注 <code>[待同步]</code>。</p>
+                </div>
+                <div class="duo-box duo-down">
+                    <h4>📥 改下游</h4>
+                    <p>逐条比对是否超出上游范围。超出 → <b>先改上游</b>，禁止擅自扩展。</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 审计 -->
+        <div class="section">
+            <h2>🤖 自动审计</h2>
             <table>
                 <tr>
                     <th>检查项</th>
-                    <th>什么意思</th>
-                    <th>举个例子</th>
+                    <th>查什么</th>
+                    <th>例子</th>
                 </tr>
                 <tr>
                     <td>编号连续性</td>
-                    <td>功能编号有没有跳号或重复</td>
-                    <td>USER-001 后面直接 USER-003，中间漏了 002</td>
+                    <td>跳号 / 重复</td>
+                    <td>USER-001 后直接 USER-003</td>
                 </tr>
                 <tr>
                     <td>上游缺失</td>
-                    <td>产物开头有没有声明引用了谁</td>
-                    <td>交互设计忘了写"我引用了哪个 PRD"</td>
+                    <td>有无声明引用</td>
+                    <td>交互设计没写引用了哪个 PRD</td>
                 </tr>
                 <tr>
                     <td>跨产物对齐</td>
-                    <td>上游定义的编号，下游有没有漏掉</td>
-                    <td>PRD 定义了 USER-002，交互设计里没提到</td>
+                    <td>下游是否漏了上游编号</td>
+                    <td>PRD 有 USER-002，交互没提到</td>
                 </tr>
                 <tr>
                     <td>接口一致性</td>
-                    <td>技术方案的接口设计和清单是否对得上</td>
-                    <td>§4 写了 5 个接口，§13 清单只列了 4 个</td>
+                    <td>§4 和 §13 数量是否一致</td>
+                    <td>§4 写了 5 个接口，§13 列了 4 个</td>
                 </tr>
                 <tr>
                     <td>HTML 完整性</td>
-                    <td>UI 设计稿是不是合格的原型</td>
-                    <td>没写 DOCTYPE、没声明 upstream、没 CSS 变量、写了 onclick</td>
+                    <td>UI 稿是否合格</td>
+                    <td>没 DOCTYPE / 没 upstream / 写了 onclick</td>
                 </tr>
                 <tr>
                     <td>边界违规</td>
-                    <td>有没有越界写了不该写的东西</td>
-                    <td>交互设计里写了"按钮用 #ff0000 红色"</td>
+                    <td>越界写了不该写的</td>
+                    <td>交互设计里写"按钮用 #ff0000"</td>
                 </tr>
             </table>
-
-            <p>机器查完低级错误后，剩下的内容质量（比如业务逻辑对不对、状态机是否合理）由人工或模型来审。</p>
         </div>
 
+        <!-- 红线 -->
         <div class="section">
             <h2>🚦 两条红线</h2>
-
-            <h3>红线 1：改上游必须通知下游</h3>
-            <p>你改了建筑的功能说明书（PRD），所有拿着这份说明书施工的人（交互、UI、技术、测试）都必须知道。要么一起改，要么在图纸上贴个便利贴写"这里待同步"。<strong>禁止改了上游，下游还停留在旧版本。</strong></p>
-
-            <h3>红线 2：改下游不能超出上游范围</h3>
-            <p>施工队不能擅自给房子加个阳台，除非先回去改图纸（上游）。<strong>想在下游加新功能？先改 PRD，否则直接叫停。</strong></p>
-        </div>
-
-        <div class="section">
-            <h2>⚖️ 用它值不值</h2>
-            <div class="compare">
-                <div class="compare-box compare-good">
-                    <h4>✅ 什么时候值得用</h4>
-                    <ul>
-                        <li>项目人多、协作复杂</li>
-                        <li>需求经常变，怕改漏</li>
-                        <li>同时做 App、Web、管理后台等多个端</li>
-                        <li>代码要长期维护，不能写完就扔</li>
-                        <li>团队新人多，需要统一标准</li>
-                    </ul>
+            <div class="redline-grid">
+                <div class="redline-box redline-1">
+                    <h4>⛔ 改上游必须通知下游</h4>
+                    <p>禁止改了上游，下游还停留在旧版本</p>
                 </div>
-                <div class="compare-box compare-bad">
-                    <h4>⚠️ 什么时候不太适合</h4>
-                    <ul>
-                        <li>做个原型验证，越快越好</li>
-                        <li>个人 side project</li>
-                        <li>探索性尝试，需求还没想清楚</li>
-                        <li>需求极其简单，维护成本高于收益</li>
-                    </ul>
+                <div class="redline-box redline-2">
+                    <h4>⛔ 改下游不能超出上游</h4>
+                    <p>想加新功能？先改 PRD</p>
                 </div>
             </div>
         </div>
 
+        <!-- 总结 -->
         <div class="section">
-            <h2>📋 一句话总结</h2>
+            <h2>📋 一句话</h2>
             <div class="analogy">
-                <strong>类比：</strong> e2e-solution-guard 就像建筑行业的<strong>图纸管理系统</strong>。它不是帮你画图纸，而是确保每份图纸都有编号、知道从哪份总图派生、改了总图能自动通知所有相关图纸、施工队拿到的永远是最新版。它的价值不在"写得多快"，而在<strong>"改的时候不慌"</strong>。
+                <strong>类比：</strong>e2e-solution-guard 像建筑行业的<strong>图纸管理系统</strong>——确保每份图纸有编号、知道从哪份总图派生、改了总图自动通知相关图纸、施工队永远拿到最新版。价值不在"写得多快"，而在<strong>"改的时候不慌"</strong>。
             </div>
         </div>
 

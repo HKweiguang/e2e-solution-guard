@@ -1202,7 +1202,7 @@ class GlobalInteractionAuditor(DocumentAuditor):
     def run(self):
         self.check_required_sections([
             "交互令牌", "交互状态规范",
-            "交互反馈规范", "交互规范", "无障碍设计",
+            "交互反馈规范", "交互规范",
         ])
         self.check_table_format()
 
@@ -1239,6 +1239,20 @@ class GlobalInteractionAuditor(DocumentAuditor):
                 f"建议包含反馈时效红线: {', '.join(missing_fb)}",
             )
 
+        # 检查 §6 平台交互规范（如存在）
+        sec6_match = re.search(r"§?6\s+平台交互规范", self.raw_text)
+        if sec6_match:
+            sec6_text = self._section_text(r"§?6\s+(?:平台交互规范)")
+            platforms = ["Web", "App", "小程序"]
+            found_platforms = [p for p in platforms if p in sec6_text]
+            if not found_platforms:
+                self.add_issue(
+                    "platform_interaction_empty",
+                    "warning",
+                    "§6 平台交互规范",
+                    "平台交互规范章节存在但未声明任何平台类型（Web/App/小程序）",
+                )
+
 
 class GlobalUIAuditor(DocumentAuditor):
     """UI 顶层定义审计器"""
@@ -1247,8 +1261,7 @@ class GlobalUIAuditor(DocumentAuditor):
         self.check_required_sections([
             "设计原则", "设计令牌体系", "色彩系统",
             "字体系统", "间距与布局系统", "形状系统",
-            "阴影与海拔", "动效与过渡", "图标规范",
-            "主题与暗黑模式", "组件库", "异构端视觉规范",
+            "阴影与海拔", "组件库",
         ])
         self.check_table_format()
 
@@ -1261,6 +1274,20 @@ class GlobalUIAuditor(DocumentAuditor):
                 "§11 组件库",
                 "组件库章节未声明全局状态规范",
             )
+
+        # 检查 §12 平台视觉规范（如存在）
+        sec12_match = re.search(r"§?12\s+平台视觉规范", self.raw_text)
+        if sec12_match:
+            sec12_text = self._section_text(r"§?12\s+(?:平台视觉规范)")
+            dimensions = ["状态差异", "组件尺寸", "安全区", "字体", "色彩", "动效"]
+            found_dims = [d for d in dimensions if d in sec12_text]
+            if not found_dims:
+                self.add_issue(
+                    "platform_visual_empty",
+                    "warning",
+                    "§12 平台视觉规范",
+                    "平台视觉规范章节存在但未声明任何视觉差异维度",
+                )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
