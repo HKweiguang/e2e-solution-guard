@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 """
-doc-audit.py — 产物一致性审计工具（标准库 only）
+doc-audit.py — 产物一致性审计规则引擎（标准库 only）
+
+核心抽象：
+- Extractor: 从产物中提取结构化数据（章节、表格、编号、代码块）
+- Rule: 接收提取的数据和上下文，执行检查，返回 Issue
+- Engine: 按产物类型组合 Rule，执行并汇总
 
 用法:
-  # 全量审计
-  python3 scripts/doc-audit.py <doc_path> --type prd --upstream upstream1.md upstream2.md
-
-  # 增量审计（仅检查变更的功能点/页面/章节）
-  python3 scripts/doc-audit.py <doc_path> --type prd --upstream up1.md --delta <标识符列表>
-
-  # 扫描下游影响（输出受影响的下游产物清单）
+  python3 scripts/doc-audit.py <doc_path> --type prd --upstream up1.md up2.md
   python3 scripts/doc-audit.py <doc_path> --type prd --scan-downstream ./docs/
-
-输出: 结构化 JSON，包含 mechanical_issues / semantic_hints / summary
 """
 
 from __future__ import annotations
@@ -28,1121 +25,1156 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 1. Markdown AST（轻量、标准库 only）
+# 1. 数据模型
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @dataclass
-class MarkdownNode:
-    type: str  # heading, table, paragraph, code, list, blockquote, raw
-    content: str = ""
-    meta: Dict[str, Any] = field(default_factory=dict)
-    children: List[MarkdownNode] = field(default_factory=list)
+class Issue:
+    check_id: str
+    severity: str  # blocking / warning / info
+    location: str
+    message: str
 
 
-class MarkdownParser:
+@dataclass
+class ExtractedData:
+    """提取后的结构化数据"""
+    raw_text: str = ""
+    sections: List[Tuple[int, str]] = field(default_factory=list)
+    tables: List[List[List[str]]] = field(default_factory=list)
+    code_blocks: List[Tuple[str, str]] = field(default_factory=list)
+    # 产物类型特定的提取结果
+    ids: Set[str] = field(default_factory=set)
+
+
+@dataclass
+class AuditContext:
+    """审计上下文，包含上游文档提取的数据"""
+    doc_path: Path
+    doc_type: str
+    upstream_docs: Dict[str, ExtractedData] = field(default_factory=dict)
+    user_data: Dict[str, Any] = field(default_factory=dict)
+    is_template: bool = False  # 产物模板豁免标记
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 2. 提取层
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class MarkdownExtractor:
     """基于状态机的轻量 Markdown 解析器。支持 heading / table / code / list / paragraph。"""
 
     def __init__(self, text: str):
+        self.raw_text = text
         self.lines = text.splitlines()
-        self.pos = 0
-        self.nodes: List[MarkdownNode] = []
+        self.nodes: List[Dict[str, Any]] = []
+        self._parse()
 
-    def parse(self) -> List[MarkdownNode]:
-        while self.pos < len(self.lines):
-            line = self.lines[self.pos]
+    def extract(self) -> ExtractedData:
+        self._parse()
+        data = ExtractedData(raw_text=self.raw_text)
+        data.sections = self._extract_sections()
+        data.tables = self._extract_tables()
+        data.code_blocks = self._extract_code_blocks()
+        data.ids = self._extract_ids()
+        return data
+
+    def _parse(self):
+        """解析为节点列表，供后续精确提取使用"""
+        pos = 0
+        while pos < len(self.lines):
+            line = self.lines[pos]
             stripped = line.strip()
             if not stripped:
-                self.pos += 1
+                pos += 1
                 continue
             if stripped.startswith("```"):
-                self.nodes.append(self._parse_code_block())
+                self.nodes.append(self._parse_code_block(pos))
+                pos = self.nodes[-1]["end_pos"]
             elif stripped.startswith("|"):
-                self.nodes.append(self._parse_table())
+                self.nodes.append(self._parse_table(pos))
+                pos = self.nodes[-1]["end_pos"]
             elif stripped.startswith("#"):
-                self.nodes.append(self._parse_heading())
-            elif re.match(r"^[-*+\d]+[.)]?\s", stripped):
-                self.nodes.append(self._parse_list())
-            elif stripped.startswith(">"):
-                self.nodes.append(self._parse_blockquote())
+                self.nodes.append(self._parse_heading(pos))
+                pos += 1
             else:
-                self.nodes.append(self._parse_paragraph())
-        return self.nodes
+                pos += 1
+        # 不解析 paragraph/list，因为我们主要用 heading/table/code
 
-    def _parse_heading(self) -> MarkdownNode:
-        line = self.lines[self.pos].strip()
+    def _parse_heading(self, pos: int) -> Dict:
+        line = self.lines[pos].strip()
         m = re.match(r"^(#{1,6})\s+(.*)$", line)
         level = len(m.group(1)) if m else 1
         text = m.group(2).strip() if m else line
-        self.pos += 1
-        return MarkdownNode(type="heading", content=text, meta={"level": level})
+        return {"type": "heading", "level": level, "text": text, "line": pos, "end_pos": pos + 1}
 
-    def _parse_code_block(self) -> MarkdownNode:
-        fence = self.lines[self.pos].strip()
+    def _parse_code_block(self, pos: int) -> Dict:
+        fence = self.lines[pos].strip()
         lang = fence[3:].strip() if len(fence) > 3 else ""
-        self.pos += 1
+        start = pos
+        pos += 1
         lines: List[str] = []
-        while self.pos < len(self.lines):
-            if self.lines[self.pos].strip().startswith("```"):
-                self.pos += 1
+        while pos < len(self.lines):
+            if self.lines[pos].strip().startswith("```"):
+                pos += 1
                 break
-            lines.append(self.lines[self.pos])
-            self.pos += 1
-        return MarkdownNode(type="code", content="\n".join(lines), meta={"lang": lang})
+            lines.append(self.lines[pos])
+            pos += 1
+        return {"type": "code", "lang": lang, "content": "\n".join(lines), "line": start, "end_pos": pos}
 
-    def _parse_table(self) -> MarkdownNode:
+    def _parse_table(self, pos: int) -> Dict:
         rows: List[List[str]] = []
-        while self.pos < len(self.lines):
-            line = self.lines[self.pos].strip()
+        start = pos
+        while pos < len(self.lines):
+            line = self.lines[pos].strip()
             if not line.startswith("|"):
                 break
             cells = [c.strip() for c in line[1:].split("|")]
-            # 去掉末尾空单元格（因行尾 | 产生）
             if cells and not cells[-1]:
                 cells.pop()
             rows.append(cells)
-            self.pos += 1
-        return MarkdownNode(type="table", content="", meta={"rows": rows})
+            pos += 1
+        return {"type": "table", "rows": rows, "line": start, "end_pos": pos}
 
-    def _parse_list(self) -> MarkdownNode:
-        items: List[str] = []
-        while self.pos < len(self.lines):
-            line = self.lines[self.pos]
-            stripped = line.strip()
-            if not stripped:
-                self.pos += 1
-                continue
-            if not re.match(r"^[-*+\d]+[.)]?\s", stripped):
-                break
-            items.append(stripped)
-            self.pos += 1
-        return MarkdownNode(type="list", content="\n".join(items))
+    def _extract_sections(self) -> List[Tuple[int, str]]:
+        return [(n["level"], n["text"]) for n in self.nodes if n["type"] == "heading"]
 
-    def _parse_blockquote(self) -> MarkdownNode:
-        lines: List[str] = []
-        while self.pos < len(self.lines):
-            line = self.lines[self.pos]
-            if not line.strip().startswith(">"):
-                break
-            lines.append(line.strip().lstrip(">").strip())
-            self.pos += 1
-        return MarkdownNode(type="blockquote", content="\n".join(lines))
+    def _extract_tables(self) -> List[List[List[str]]]:
+        return [n["rows"] for n in self.nodes if n["type"] == "table"]
 
-    def _parse_paragraph(self) -> MarkdownNode:
-        lines: List[str] = []
-        while self.pos < len(self.lines):
-            line = self.lines[self.pos]
-            stripped = line.strip()
-            if not stripped:
-                self.pos += 1
-                break
-            if stripped.startswith(("#", "|", "```", ">")) or re.match(r"^[-*+\d]+[.)]?\s", stripped):
-                break
-            lines.append(line)
-            self.pos += 1
-        return MarkdownNode(type="paragraph", content="\n".join(lines))
+    def _extract_code_blocks(self) -> List[Tuple[str, str]]:
+        return [(n["lang"], n["content"]) for n in self.nodes if n["type"] == "code"]
 
+    def _extract_ids(self) -> Set[str]:
+        pattern = r"\b[A-Za-z][A-Za-z0-9_]*(?:-[A-Za-z][A-Za-z0-9_]*)*-\d+\b"
+        return set(re.findall(pattern, self.raw_text))
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 2. 通用审计基类
-# ═══════════════════════════════════════════════════════════════════════════════
+    # ── 精细提取工具 ──
 
-@dataclass
-class AuditIssue:
-    type: str
-    severity: str  # blocking / warning
-    location: str
-    message: str
-
-
-@dataclass
-class AuditHint:
-    type: str
-    severity: str  # warning / info
-    location: str
-    message: str
-
-
-class DocumentAuditor:
-    """审计器基类。子类覆盖 run() 调用通用检查 + 专用检查。"""
-
-    def __init__(
-        self,
-        doc_path: str,
-        upstream_paths: Optional[List[str]] = None,
-        delta_scope: Optional[List[str]] = None,
-    ):
-        self.doc_path = Path(doc_path)
-        self.upstream_paths = [Path(p) for p in (upstream_paths or [])]
-        self.delta_scope = set(delta_scope or [])  # 增量范围，如 {"USER-001", "PAGE-001"}（示例，实际标识符格式以项目定义为准）
-        self.raw_text = self.doc_path.read_text(encoding="utf-8")
-        self.nodes = MarkdownParser(self.raw_text).parse()
-        self.issues: List[AuditIssue] = []
-        self.hints: List[AuditHint] = []
-        # upstream_paths 用于存在性校验，文本内容暂未使用
-
-    # ── 输出 ──
-    def add_issue(self, check_type: str, severity: str, location: str, message: str):
-        self.issues.append(AuditIssue(check_type, severity, location, message))
-
-    def add_hint(self, check_type: str, severity: str, location: str, message: str):
-        self.hints.append(AuditHint(check_type, severity, location, message))
-
-    def report(self) -> dict:
-        blocking = [i for i in self.issues if i.severity == "blocking"]
-        return {
-            "passed": len(blocking) == 0,
-            "doc": str(self.doc_path),
-            "delta_scope": sorted(self.delta_scope) if self.delta_scope else None,
-            "mechanical_issues": [i.__dict__ for i in self.issues],
-            "semantic_hints": [h.__dict__ for h in self.hints],
-            "summary": {
-                "blocking": len(blocking),
-                "warning": len([i for i in self.issues if i.severity == "warning"]),
-                "hints": len(self.hints),
-            },
-        }
-
-    # ── 通用工具 ──
-    def _find_sections(self) -> List[Tuple[int, str]]:
-        """返回所有 heading 节点: [(level, text), ...]"""
-        return [
-            (n.meta.get("level", 1), n.content)
-            for n in self.nodes
-            if n.type == "heading"
-        ]
-
-    def _section_text(self, header_pattern: str) -> str:
-        """提取匹配 header_pattern 的章节及其子章节文本（直到同级或更高级 heading）。"""
-        start = -1
+    def section_text(self, header_pattern: str) -> str:
+        """提取匹配 header_pattern 的 heading 及其子章节文本（直到同级或更高级 heading）"""
+        start_idx = -1
         level = 6
         for idx, n in enumerate(self.nodes):
-            if n.type == "heading" and re.search(header_pattern, n.content):
-                start = idx
-                level = n.meta.get("level", 1)
+            if n["type"] == "heading" and re.search(header_pattern, n["text"]):
+                start_idx = idx
+                level = n["level"]
                 break
-        if start == -1:
+        if start_idx == -1:
             return ""
+
         parts: List[str] = []
-        for n in self.nodes[start + 1 :]:
-            if n.type == "heading" and n.meta.get("level", 1) <= level:
+        for n in self.nodes[start_idx + 1:]:
+            if n["type"] == "heading" and n["level"] <= level:
                 break
-            if n.type == "table":
-                rows = n.meta.get("rows", [])
-                for row in rows:
+            if n["type"] == "table":
+                for row in n["rows"]:
                     parts.append("| " + " | ".join(row) + " |")
+            elif n["type"] == "code":
+                parts.append(f"```{n['lang']}")
+                parts.append(n["content"])
+                parts.append("```")
             else:
-                parts.append(n.content)
+                parts.append(n.get("text", ""))
         return "\n".join(parts)
 
-    def _extract_table_after(self, header_pattern: str) -> Optional[List[List[str]]]:
-        """在匹配 header_pattern 的 heading/paragraph 后找到第一个 table 节点。"""
+    def table_after_heading(self, header_pattern: str) -> Optional[List[List[str]]]:
+        """在匹配 header_pattern 的 heading 后找到第一个 table"""
         found = False
         for n in self.nodes:
-            if n.type in ("heading", "paragraph") and re.search(header_pattern, n.content):
+            if n["type"] == "heading" and re.search(header_pattern, n["text"]):
                 found = True
                 continue
-            if found and n.type == "table":
-                return n.meta.get("rows", [])
-            if found and n.type == "heading":
-                # 如果 heading 级别高于触发 heading 则停止，但 upstream 表格通常在 paragraph 后面
-                # 这里放宽：遇到任何 heading 不立即停止，只有当 heading 级别 <=2 且不是我们要找的才停止
-                if n.meta.get("level", 1) <= 2:
-                    break
+            if found and n["type"] == "table":
+                return n["rows"]
+            if found and n["type"] == "heading" and n["level"] <= 2:
+                break
         return None
 
-    def _collect_numbers(self, prefix: str, text: str) -> List[int]:
-        pattern = rf"{prefix}(\d+)"
-        return sorted({int(m) for m in re.findall(pattern, text)})
+    def ids_in_section(self, header_pattern: str, id_pattern: Optional[str] = None) -> Set[str]:
+        """从指定章节中提取编号"""
+        text = self.section_text(header_pattern)
+        if not text:
+            return set()
+        if id_pattern:
+            return set(re.findall(id_pattern, text))
+        # 默认模式
+        return set(re.findall(r"\b[A-Za-z][A-Za-z0-9_]*(?:-[A-Za-z][A-Za-z0-9_]*)*-\d+\b", text))
 
-    # ── 通用机械检查 ──
-    def check_number_continuity(self, prefix: str, location: str, text: str | None = None):
-        text = self.filter_delta_text(text or self.raw_text)
-        if not text.strip():
-            return
-        numbers = self._collect_numbers(prefix, text)
-        if not numbers:
-            return
-        for i in range(len(numbers) - 1):
-            gap = numbers[i + 1] - numbers[i]
-            if gap > 1:
-                # 检查是否有预留声明（如"F107、F108 为预留跳号"）
-                skipped = [f"{prefix}{n:03d}" for n in range(numbers[i] + 1, numbers[i + 1])]
-                has_reserved = any(
-                    re.search(rf"{re.escape(s)}.*预留|预留.*{re.escape(s)}|角色标识.*{re.escape(s)}|{re.escape(s)}.*角色标识", self.raw_text)
-                    for s in skipped
-                )
-                if has_reserved:
-                    continue
-                self.add_issue(
-                    "number_gap",
-                    "blocking",
-                    location,
-                    f"{prefix} 编号不连续，缺少 {prefix}{numbers[i]+1:03d}"
-                    f"（已有 {prefix}{numbers[i]:03d}, {prefix}{numbers[i+1]:03d}）",
-                )
 
-    def _check_multi_prefix_continuity(self, text: str, location: str):
-        """按前缀分组检查编号连续性，支持混合前缀（如 USER-001, TICKET-CUST-001）。"""
-        if not text.strip():
-            return
-        ids = ID_RE.findall(text)
-        from collections import defaultdict
-        prefix_groups = defaultdict(list)
-        for id_str in ids:
-            m = re.match(r"(.+)-(\d+)$", id_str)
-            if m:
-                prefix_groups[m.group(1)].append(int(m.group(2)))
-        for prefix, nums in prefix_groups.items():
-            nums = sorted(set(nums))
-            for i in range(len(nums) - 1):
-                gap = nums[i + 1] - nums[i]
-                if gap > 1:
-                    skipped = [f"{prefix}-{n:03d}" for n in range(nums[i] + 1, nums[i + 1])]
-                    has_reserved = any(
-                        re.search(rf"{s}.*预留|预留.*{s}|角色标识.*{s}|{s}.*角色标识", self.raw_text)
-                        for s in skipped
-                    )
-                    if has_reserved:
-                        continue
-                    self.add_issue(
-                        "number_gap",
-                        "blocking",
-                        location,
-                        f"{prefix} 编号不连续，缺少 {prefix}-{nums[i]+1:03d}"
-                        f"（已有 {prefix}-{nums[i]:03d}, {prefix}-{nums[i+1]:03d}）",
-                    )
+class HTMLExtractor:
+    """从 UI HTML 产物中提取结构化数据"""
 
-    def check_duplicate_numbers(self, prefix: str, location: str, text: str | None = None):
-        text = self.filter_delta_text(text or self.raw_text)
-        if not text.strip():
-            return
-        pattern = rf"{prefix}(\d+)"
-        numbers = re.findall(pattern, text)
-        seen: Set[str] = set()
-        for n in numbers:
-            if n in seen:
-                self.add_issue(
-                    "duplicate_number",
-                    "blocking",
-                    location,
-                    f"{prefix}{n} 出现重复",
-                )
-            seen.add(n)
+    def __init__(self, text: str):
+        self.raw_text = text
 
-    def check_required_sections(self, required_headers: List[str]):
-        headings = [n.content for n in self.nodes if n.type == "heading"]
-        for header in required_headers:
-            if not any(header in h for h in headings):
-                self.add_issue(
-                    "missing_section",
-                    "blocking",
-                    "章节结构",
-                    f"缺少必填章节: {header}",
-                )
+    def extract(self) -> ExtractedData:
+        data = ExtractedData(raw_text=self.raw_text)
+        data.sections = self._extract_sections()
+        data.ids = self._extract_classes()
+        data.code_blocks = [("css", self._extract_css())]
+        return data
 
-    def check_table_format(self):
-        for idx, n in enumerate(self.nodes, 1):
-            if n.type != "table":
-                continue
-            rows = n.meta.get("rows", [])
-            if not rows:
-                continue
-            if len(rows) < 2:
-                self.add_issue(
-                    "table_format",
-                    "warning",
-                    f"表格 #{idx}",
-                    "表格少于两行，可能格式错误",
-                )
-                continue
-            # 检查分隔行（Markdown 表格第二行应为 |---|---|）
-            sep = rows[1]
-            if not all(re.match(r"^:?-+:?$", cell) for cell in sep if cell.strip()):
-                self.add_issue(
-                    "table_format",
-                    "warning",
-                    f"表格 #{idx}",
-                    "第二行分隔线格式不正确",
-                )
-            # 检查列数一致
-            col_counts = [len(r) for r in rows]
-            if len(set(col_counts)) > 1:
-                self.add_issue(
-                    "table_format",
-                    "blocking",
-                    f"表格 #{idx}",
-                    f"列数不一致: {col_counts}",
-                )
+    def _extract_sections(self) -> List[Tuple[int, str]]:
+        sections = []
+        for m in re.finditer(r'<section[^>]*id=["\']([^"\']+)["\']', self.raw_text):
+            sections.append((2, m.group(1)))
+        return sections
 
-    def check_upstream_references(self):
-        """检查 upstream-document 表格是否存在，且引用的文档路径可解析。
-        
-        豁免：若 upstream-document 区域包含"示例""常见依赖""不要机械套用"等字样，
-        视为 Skill 模板/写作指南，跳过 upstream 检查。
-        """
-        # 提取文件头部：从开头到第一个 ## 级 heading（不含 upstream 自身所在区域）
-        header_text = ""
-        in_header = True
-        upstream_found = False
-        for n in self.nodes:
-            if n.type == "heading" and n.meta.get("level", 1) <= 2:
-                if upstream_found:
-                    break
-                in_header = False
-            if "上游文档" in n.content:
-                in_header = True
-                upstream_found = True
-            if in_header:
-                header_text += n.content + "\n"
-        if not upstream_found:
-            self.add_issue(
-                "missing_upstream",
-                "blocking",
-                "文件头部",
-                "缺少 upstream-document 声明",
-            )
-            return
-        
-        # 豁免：Skill 模板/写作指南中的 upstream-document 仅为示例
-        if "不要机械套用" in header_text:
-            return
-        
-        # 提取表格中的文档名
-        table = self._extract_table_after(r"上游文档")
-        if not table or len(table) < 2:
-            self.add_issue(
-                "missing_upstream",
-                "blocking",
-                "文件头部",
-                "upstream-document 表格格式错误或为空",
-            )
-            return
-        for row in table[1:]:  # 跳过表头
-            if len(row) < 1:
-                continue
-            doc_name = row[0].strip()
-            # 跳过 Markdown 表格分隔行（如 ------）
-            if re.match(r"^:?-+:?$", doc_name):
-                continue
-            # 简单启发式：如果看起来像文件名，检查同目录或给定 upstream_paths 中是否存在
-            possible_names = [doc_name, doc_name + ".md"]
-            found = any(
-                (self.doc_path.parent / name).exists()
-                or any(name == p.name and p.exists() for p in self.upstream_paths)
-                for name in possible_names
-            )
-            if not found and "规范" not in doc_name and "AGENTS" not in doc_name:
-                # 放宽：顶层定义或 AGENTS 可能尚未落地为文件
-                self.add_hint(
-                    "upstream_not_found",
-                    "warning",
-                    "文件头部",
-                    f"上游文档 '{doc_name}' 在当前目录或 --upstream 参数中未找到，请确认路径",
-                )
+    def _extract_classes(self) -> Set[str]:
+        classes: Set[str] = set()
+        for m in re.finditer(r'class=["\']([^"\']+)["\']', self.raw_text):
+            classes.update(m.group(1).split())
+        return classes
 
-    def check_upstream_id_alignment(self, id_prefix: Optional[str] = None):
-        """检查上游文档中的关键编号是否在当前产物中有对应引用。
-        
-        当 --upstream 参数提供上游文件时，提取上游中的编号集合，与当前产物中的编号集合
-        做差集比对，报告上游有但当前产物中缺失的编号。
-        
-        Args:
-            id_prefix: 若提供，只比对该前缀的编号（如 "USER" 只比对 USER-001）。
-                      若未提供，比对上游中出现的所有编号前缀。
-        """
-        if not self.upstream_paths:
-            return
-        
-        # 收集上游编号
-        upstream_ids: Set[str] = set()
-        for up_path in self.upstream_paths:
-            if not up_path.exists():
-                continue
-            try:
-                up_text = up_path.read_text(encoding="utf-8")
-                upstream_ids |= extract_ids(up_text, prefix=id_prefix)
-            except Exception:
-                continue
-        
-        if not upstream_ids:
-            return
-        
-        # 收集当前产物编号
-        current_ids = extract_ids(self.raw_text, prefix=id_prefix)
-        
-        # 若设置了 delta_scope，只检查 delta_scope 中的编号
-        check_ids = upstream_ids
-        if self.delta_scope:
-            check_ids = upstream_ids & self.delta_scope
-        
-        missing = sorted(check_ids - current_ids)
-        if missing:
-            self.add_hint(
-                "upstream_id_missing",
-                "warning",
-                "跨产物对齐",
-                f"上游文档中定义的编号在当前产物中未出现: {', '.join(missing)}。"
-                f"请确认是否遗漏对应实现，或该编号确实不适用于本产物。",
-            )
+    def _extract_css(self) -> str:
+        blocks = re.findall(r"<style[^>]*>([\s\S]*?)</style>", self.raw_text)
+        return "\n".join(blocks)
 
-    def check_error_code_format(self, text: str | None = None, error_prefixes: Optional[List[str]] = None):
-        """检查错误码格式是否符合项目 PRD-顶层定义声明的格式。
-        如未提供 error_prefixes，跳过格式检查（格式完全由项目自定义）。
-        """
-        text = self.filter_delta_text(text or self.raw_text)
-        if not text.strip() or not error_prefixes:
-            return
-        for prefix in error_prefixes:
-            # 要求前缀后接分隔符（- 或 _），避免 "ERR" 误匹配 "ERROR" 等普通单词
-            codes = re.findall(rf"`?({prefix}[-_][A-Z0-9_-]+)`?", text)
-            for code in codes:
-                self.add_hint(
-                    "error_code_found",
-                    "info",
-                    "错误码",
-                    f"发现错误码 {code}，请确认格式符合项目 PRD-顶层定义",
-                )
+    def css_vars(self) -> Set[str]:
+        css = self._extract_css()
+        return set(re.findall(r"var\((--[\w-]+)\)", css))
 
-    def check_term_consistency(self, term_list: Optional[List[str]] = None):
-        """术语一致性检查。
-        如果提供 term_list，则检查文档中是否出现 term_list 中的术语变形；
-        否则从加粗文本中提取候选术语，并检测常见混用。
-        """
-        filtered_text = self.filter_delta_text(self.raw_text)
-        if not filtered_text.strip():
-            return
-        # 提取加粗术语
-        bold_terms = re.findall(r"\*\*([^*]+?)\*\*", filtered_text)
-        term_counts: Dict[str, int] = {}
-        for t in bold_terms:
-            t = t.strip()
-            if 2 <= len(t) <= 20:
-                term_counts[t] = term_counts.get(t, 0) + 1
+    def has_doctype(self) -> bool:
+        return bool(re.search(r"<!DOCTYPE\s+html", self.raw_text, re.IGNORECASE))
 
-        # 项目自定义术语冲突（从 upstream PRD-顶层定义中提取术语表）
-        if term_list:
-            found_terms = {t for t in term_counts}
-            for term in term_list:
-                variants = [term, term.replace("用户", "客户"), term.replace("订单", "单据")]
-                matches = [v for v in variants if v in found_terms]
-                if len(matches) > 1:
-                    self.add_hint(
-                        "term_inconsistency",
-                        "warning",
-                        "术语一致性",
-                        f"文档中同时出现 {' / '.join(matches)}，请确认是否为同一概念",
-                    )
-        else:
-            # 默认常见混用检测（在过滤后的文本中进行）
-            common_confusions = [
-                ("用户", "客户"),
-                ("订单", "单据"),
-                ("商品", "产品"),
-                ("金额", "价格"),
-            ]
-            found_terms = set(term_counts.keys())
-            for a, b in common_confusions:
-                if a in found_terms and b in found_terms:
-                    self.add_hint(
-                        "term_inconsistency",
-                        "warning",
-                        "术语一致性",
-                        f"文档中同时出现 '{a}' 和 '{b}'，请确认是否为同一概念",
-                    )
+    def has_upstream_comment(self) -> bool:
+        return bool(re.search(r"<!--\s*upstream:", self.raw_text))
 
-    # ── 增量审计工具 ──
-    def filter_delta_text(self, text: str) -> str:
-        """如果设置了 delta_scope，按块保留包含这些标识符的内容。
 
-        分块策略：按空行分块，块内包含任何 delta 标识符则保留整个块。
-        这样既能聚焦变更范围，又不会破坏表格/列表的上下文结构，
-        避免编号连续性等检查因上下文缺失而误报。
-        """
-        if not self.delta_scope:
-            return text
-        lines = text.splitlines()
-        # 按空行分块
-        blocks: List[List[str]] = []
-        current_block: List[str] = []
-        for line in lines:
-            if line.strip() == "":
-                if current_block:
-                    blocks.append(current_block)
-                    current_block = []
-            else:
-                current_block.append(line)
-        if current_block:
-            blocks.append(current_block)
+# ═══════════════════════════════════════════════════════════════════════════════
+# 3. 规则层
+# ═══════════════════════════════════════════════════════════════════════════════
 
-        result: List[str] = []
-        for block in blocks:
-            block_text = "\n".join(block)
-            if any(re.search(rf"\b{re.escape(scope)}\b", block_text) for scope in self.delta_scope):
-                result.extend(block)
-                result.append("")
-        return "\n".join(result).rstrip("\n")
+class Rule:
+    """规则基类。子类覆盖 check() 方法。"""
 
-    def run(self):
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
         raise NotImplementedError
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 3. 按产物类型的专用审计器
-# ═══════════════════════════════════════════════════════════════════════════════
+# ── 通用规则 ──
 
-class PRDAuditor(DocumentAuditor):
-    """PRD 文档审计器"""
+class SectionExistsRule(Rule):
+    """检查必填章节是否存在"""
 
-    def run(self):
-        # 结构一致性
-        self.check_required_sections([
-            "背景与目标", "用户与场景", "功能需求",
-            "非功能需求", "数据模型", "业务规则", "错误处理", "验收标准", "依赖与范围", "附件",
-        ])
+    def __init__(self, check_id: str, patterns: List[str], severity: str = "blocking"):
+        self.check_id = check_id
+        self.patterns = patterns
+        self.severity = severity
 
-        # 提取 §3 功能需求文本（用于后续引用检查）
-        sec3_text = self._section_text(r"§3\s+功能需求")
-        # sec5 数据模型通常不包含功能编号引用，已排除在 downstream_text 外
-        sec6_text = self._section_text(r"§6\s+业务规则")
-        sec7_text = self._section_text(r"§7\s+错误处理")
-        sec8_text = self._section_text(r"§8\s+验收标准")
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        headings = [s[1] for s in data.sections]
+        issues = []
+        for pattern in self.patterns:
+            if not any(pattern in h for h in headings):
+                issues.append(Issue(
+                    check_id=self.check_id, severity=self.severity,
+                    location="章节结构", message=f"缺少必填章节: {pattern}"
+                ))
+        return issues
 
-        # 编号连续性 & 重复（只在分配表格中检查，避免后续章节引用导致误报）
-        # 提取 §3 表格第一列（跳过表头、分隔行和已知表头文本）
-        sec3_table = self._extract_table_after(r"§3\s+功能需求")
-        sec3_first_col = "\n".join(
-            row[0] for row in (sec3_table or [])
-            if row and not re.match(r"^:?-+:?$", row[0])
-            and row[0].strip() not in ("功能编号", "编号", "ID")
-        )
 
-        # 编号连续性：按前缀分组检查跳号
-        if sec3_first_col.strip():
-            self._check_multi_prefix_continuity(sec3_first_col, "§3 功能需求")
+class TableFormatRule(Rule):
+    """检查表格格式：列数一致、分隔行正确"""
 
-        # 表格格式
-        self.check_table_format()
+    def __init__(self, check_id: str):
+        self.check_id = check_id
 
-        # 术语一致性
-        self.check_term_consistency()
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        issues = []
+        for idx, table in enumerate(data.tables, 1):
+            if len(table) < 2:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location=f"表格 #{idx}", message="表格少于两行，可能格式错误"
+                ))
+                continue
+            sep = table[1]
+            if not all(re.match(r"^:?-+:?$", cell) for cell in sep if cell.strip()):
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location=f"表格 #{idx}", message="第二行分隔线格式不正确"
+                ))
+            col_counts = [len(r) for r in table]
+            if len(set(col_counts)) > 1:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="blocking",
+                    location=f"表格 #{idx}", message=f"列数不一致: {col_counts}"
+                ))
+        return issues
 
-        # upstream
-        self.check_upstream_references()
 
-        # 内部自洽性：§3 的功能标识在 §6/§7/§8 中至少引用一次
-        # 注意：§5 数据模型通常不包含功能编号引用，纳入会产生噪音
-        downstream_text = sec6_text + sec7_text + sec8_text
-        if sec3_first_col.strip():
-            # 从功能需求第一列提取所有标识符（不假设格式）
-            feature_ids = [line.strip() for line in sec3_first_col.splitlines() if line.strip() and not re.match(r"^:?-+:?$", line.strip())]
-            for fid in feature_ids:
-                if fid not in downstream_text:
-                    self.add_hint(
-                        "unreferenced_feature",
-                        "warning",
-                        "内部自洽性",
-                        f"功能点 {fid} 在 §6/§7/§8 中未被引用，请确认是否有遗漏章节",
-                    )
+class TableColumnRule(Rule):
+    """检查指定表格是否包含必填列"""
 
-        # §3 功能编号重复检查（按完整行去重，避免空前缀误匹配）
-        if sec3_first_col.strip():
-            seen = set()
-            for line in sec3_first_col.splitlines():
-                fid = line.strip()
-                if fid in seen:
-                    self.add_issue(
-                        "duplicate_number",
-                        "blocking",
-                        "§3 功能需求",
-                        f"{fid} 出现重复",
-                    )
-                seen.add(fid)
+    def __init__(self, check_id: str, header_pattern: str, required_cols: List[str],
+                 severity: str = "blocking"):
+        self.check_id = check_id
+        self.header_pattern = header_pattern
+        self.required_cols = required_cols
+        self.severity = severity
 
-        # §7 每个错误码在 §6 中有对应触发场景
-        # 从 sec7 中提取反引号包裹的候选错误码，过滤掉字段名、状态值等非错误码内容
-        err_codes = re.findall(rf"`({ERROR_CODE_RE})`", sec7_text)
-        for code in set(err_codes):
-            if code not in sec6_text:
-                self.add_hint(
-                    "error_code_no_rule",
-                    "warning",
-                    "内部自洽性",
-                    f"错误码 {code} 在 §6 业务规则中无对应触发场景",
-                )
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        extractor = MarkdownExtractor(data.raw_text)
+        table = extractor.table_after_heading(self.header_pattern)
+        if not table or not table[0]:
+            return [Issue(
+                check_id=self.check_id, severity=self.severity,
+                location="表格检查", message=f"未找到 '{self.header_pattern}' 后的表格"
+            )]
+        header = [c.strip() for c in table[0]]
+        issues = []
+        for col in self.required_cols:
+            if col not in header:
+                issues.append(Issue(
+                    check_id=self.check_id, severity=self.severity,
+                    location=f"表格表头", message=f"缺少必填列: {col}"
+                ))
+        return issues
 
-        # §8 每条验收标准对应 §3 的一个功能点
-        # 验收标准编号格式由项目自定义（如 ACC-001），从表格第一列提取
-        sec8_table = self._extract_table_after(r"§8\s+验收标准")
-        ac_rows = []
-        if sec8_table:
-            for row in sec8_table:
-                if row and not re.match(r"^:?-+:?$", row[0]) \
-                        and row[0].strip() not in ("验收项编号", "验收标准编号", "编号", "ID"):
-                    ac_rows.append(row)
-        for row in ac_rows:
+
+class IdDuplicateRule(Rule):
+    """检查编号重复"""
+
+    def __init__(self, check_id: str, id_pattern: Optional[str] = None):
+        self.check_id = check_id
+        self.id_pattern = id_pattern
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        ids = data.ids
+        if self.id_pattern:
+            ids = set(re.findall(self.id_pattern, data.raw_text))
+        seen: Set[str] = set()
+        issues = []
+        for id_str in ids:
+            if id_str in seen:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="blocking",
+                    location="编号重复", message=f"{id_str} 出现重复"
+                ))
+            seen.add(id_str)
+        return issues
+
+
+class IdContinuityRule(Rule):
+    """检查编号连续性（按前缀分组）"""
+
+    def __init__(self, check_id: str, id_pattern: Optional[str] = None):
+        self.check_id = check_id
+        self.id_pattern = id_pattern
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        ids = data.ids
+        if self.id_pattern:
+            ids = set(re.findall(self.id_pattern, data.raw_text))
+
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for id_str in ids:
+            m = re.match(r"(.+)-(\d+)$", id_str)
+            if m:
+                groups[m.group(1)].append(int(m.group(2)))
+
+        issues = []
+        for prefix, nums in groups.items():
+            nums = sorted(set(nums))
+            for i in range(len(nums) - 1):
+                if nums[i + 1] - nums[i] > 1:
+                    issues.append(Issue(
+                        check_id=self.check_id, severity="blocking",
+                        location="编号连续性",
+                        message=f"{prefix} 编号不连续，缺少 {prefix}-{nums[i]+1:03d}"
+                    ))
+        return issues
+
+
+class IdFormatRule(Rule):
+    """检查编号格式是否符合正则"""
+
+    def __init__(self, check_id: str, format_pattern: str, id_pattern: Optional[str] = None):
+        self.check_id = check_id
+        self.format_pattern = format_pattern
+        self.id_pattern = id_pattern
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        ids = data.ids
+        if self.id_pattern:
+            ids = set(re.findall(self.id_pattern, data.raw_text))
+        issues = []
+        for id_str in ids:
+            if not re.match(self.format_pattern, id_str):
+                issues.append(Issue(
+                    check_id=self.check_id, severity="blocking",
+                    location="编号格式", message=f"{id_str} 格式不符合 {self.format_pattern}"
+                ))
+        return issues
+
+
+class ReferenceExistsRule(Rule):
+    """检查源集合中的每个元素是否在目标文本中存在"""
+
+    def __init__(self, check_id: str, source_key: str, target_key: str,
+                 severity: str = "blocking", message_template: str = "{item} 在目标中未找到"):
+        self.check_id = check_id
+        self.source_key = source_key
+        self.target_key = target_key
+        self.severity = severity
+        self.message_template = message_template
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        source_items = ctx.user_data.get(self.source_key, set())
+        target_text = ctx.user_data.get(self.target_key, "")
+        issues = []
+        for item in source_items:
+            if item not in target_text:
+                issues.append(Issue(
+                    check_id=self.check_id, severity=self.severity,
+                    location="引用完整性", message=self.message_template.format(item=item)
+                ))
+        return issues
+
+
+class SetAlignmentRule(Rule):
+    """检查两个集合的关系：subset / equal / disjoint"""
+
+    def __init__(self, check_id: str, set_a_key: str, set_b_key: str,
+                 relation: str = "subset", severity: str = "blocking"):
+        self.check_id = check_id
+        self.set_a_key = set_a_key
+        self.set_b_key = set_b_key
+        self.relation = relation
+        self.severity = severity
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        set_a = ctx.user_data.get(self.set_a_key, set())
+        set_b = ctx.user_data.get(self.set_b_key, set())
+        issues = []
+
+        if self.relation == "subset":
+            missing = set_a - set_b
+            if missing:
+                issues.append(Issue(
+                    check_id=self.check_id, severity=self.severity,
+                    location="集合对齐",
+                    message=f"期望集合中缺失: {', '.join(sorted(missing))}"
+                ))
+        elif self.relation == "equal":
+            if set_a != set_b:
+                msgs = []
+                if set_a - set_b:
+                    msgs.append(f"A 有 B 无: {', '.join(sorted(set_a - set_b))}")
+                if set_b - set_a:
+                    msgs.append(f"B 有 A 无: {', '.join(sorted(set_b - set_a))}")
+                issues.append(Issue(
+                    check_id=self.check_id, severity=self.severity,
+                    location="集合对齐", message="; ".join(msgs)
+                ))
+        elif self.relation == "disjoint_check":
+            # 检查 A 是否是 B 的子集（A 中的每个元素在 B 中有对应）
+            missing = set_a - set_b
+            if missing:
+                issues.append(Issue(
+                    check_id=self.check_id, severity=self.severity,
+                    location="集合对齐",
+                    message=f"未覆盖项: {', '.join(sorted(missing))}"
+                ))
+        return issues
+
+
+class RegexMatchRule(Rule):
+    """检查文本是否匹配（或不应匹配）正则"""
+
+    def __init__(self, check_id: str, pattern: str, text_key: str,
+                 should_match: bool = True, severity: str = "blocking", message: str = ""):
+        self.check_id = check_id
+        self.pattern = pattern
+        self.text_key = text_key
+        self.should_match = should_match
+        self.severity = severity
+        self.message = message
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        text = ctx.user_data.get(self.text_key, data.raw_text)
+        matched = bool(re.search(self.pattern, text))
+        if matched != self.should_match:
+            return [Issue(
+                check_id=self.check_id, severity=self.severity,
+                location="格式检查", message=self.message
+            )]
+        return []
+
+
+class UpstreamRefRule(Rule):
+    """检查 upstream-document 表格是否存在且引用的文档可找到"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        issues = []
+
+        # 豁免：Skill 模板中的 upstream-document 仅为示例
+        if "不要机械套用" in data.raw_text:
+            return issues
+
+        # HTML 产物：检查 <!-- upstream: ... --> 注释
+        if ctx.doc_path.suffix == ".html":
+            if not re.search(r"<!--\s*upstream:", data.raw_text, re.I):
+                issues.append(Issue(
+                    check_id=self.check_id, severity="blocking",
+                    location="文件头部", message="缺少 upstream-document 声明（<!-- upstream: ... -->）"
+                ))
+            return issues
+
+        # Markdown 产物
+        if "上游文档" not in data.raw_text:
+            issues.append(Issue(
+                check_id=self.check_id, severity="blocking",
+                location="文件头部", message="缺少 upstream-document 声明"
+            ))
+            return issues
+
+        extractor = MarkdownExtractor(data.raw_text)
+        table = extractor.table_after_heading(r"上游文档")
+        # 回退：支持 **上游文档** 加粗形式（非 heading）
+        if not table:
+            table = self._table_after_keyword(data.raw_text, "上游文档")
+        if not table or len(table) < 2:
+            issues.append(Issue(
+                check_id=self.check_id, severity="blocking",
+                location="文件头部", message="upstream-document 表格格式错误或为空"
+            ))
+            return issues
+
+        doc_dir = ctx.doc_path.parent
+        for row in table[1:]:
+            if len(row) < 1:
+                continue
+            doc_name = row[0].strip()
+            if re.match(r"^:?-+:?$", doc_name):
+                continue
+            possible = [doc_name, doc_name + ".md"]
+            found = any((doc_dir / name).exists() for name in possible)
+            if not found and "规范" not in doc_name and "AGENTS" not in doc_name:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="文件头部",
+                    message=f"上游文档 '{doc_name}' 在当前目录未找到，请确认路径"
+                ))
+        return issues
+
+    @staticmethod
+    def _table_after_keyword(text: str, keyword: str) -> Optional[List[List[str]]]:
+        """在 keyword 后的文本中查找第一个 Markdown 表格（非 heading 形式）。"""
+        idx = text.find(keyword)
+        if idx == -1:
+            return None
+        after = text[idx + len(keyword):]
+        lines = after.splitlines()
+        table_lines = []
+        in_table = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("|"):
+                in_table = True
+                table_lines.append(stripped)
+            elif in_table and not stripped:
+                continue  # 允许表格中的空行
+            elif in_table:
+                break
+        if len(table_lines) < 2:
+            return None
+        rows = []
+        for tl in table_lines:
+            cells = [c.strip() for c in tl[1:].split("|")]
+            if cells and not cells[-1]:
+                cells.pop()
+            rows.append(cells)
+        return rows
+
+
+# ── 专用规则（产物类型特定）──
+
+class FeatureTableColumnsRule(Rule):
+    """PRD: 检查 §3 功能需求表格是否包含必填列"""
+
+    def __init__(self, check_id: str, required_cols: List[str]):
+        self.check_id = check_id
+        self.required_cols = required_cols
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        table = extractor.table_after_heading(r"§3\s+功能需求")
+        if not table or len(table) < 2:
+            return [Issue(check_id=self.check_id, severity="blocking",
+                          location="§3 功能需求", message="未找到功能需求表格")]
+        header = [c.strip() for c in table[0]]
+        issues = []
+        for col in self.required_cols:
+            if col not in header:
+                issues.append(Issue(check_id=self.check_id, severity="blocking",
+                                    location="§3 功能需求表头",
+                                    message=f"缺少必填列: {col}"))
+        return issues
+
+
+class AcceptanceFeatureRefRule(Rule):
+    """PRD: 检查 §8 每条验收标准是否对应 §3 的功能点"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        # 提取 §3 功能编号（表格第一列，跳过表头）
+        sec3_table = extractor.table_after_heading(r"§3\s+功能需求")
+        feature_ids = set()
+        if sec3_table and len(sec3_table) > 1:
+            for row in sec3_table[1:]:
+                if row and not re.match(r"^:?-+:?$", row[0]):
+                    feature_ids.add(row[0].strip())
+
+        # 提取 §8 验收标准表格
+        sec8_table = extractor.table_after_heading(r"§8\s+验收标准")
+        issues = []
+        if not sec8_table or len(sec8_table) < 2:
+            return issues
+
+        for row in sec8_table[1:]:
+            if not row or re.match(r"^:?-+:?$", row[0]):
+                continue
             ac_id = row[0].strip()
-            # 优先检查功能编号列（第二列），如存在则精确匹配
-            feature_col = row[1].strip() if len(row) > 1 else ""
+            # 检查第二列（功能编号列）或整行中是否有功能点
             has_ref = False
+            feature_col = row[1].strip() if len(row) > 1 else ""
             if feature_col and feature_ids:
-                # 按常见分隔符拆分后精确匹配，避免前缀误匹配（如 USER-001 误命中 USER-0010）
-                col_parts = re.split(r"[,，;；\s|]+", feature_col)
-                has_ref = any(fid == part for part in col_parts for fid in feature_ids)
+                parts = re.split(r"[,，;；\s|]+", feature_col)
+                has_ref = any(fid == part for part in parts for fid in feature_ids)
             if not has_ref and feature_ids:
-                # 回退：检查整行文本中是否出现功能点编号（使用词边界）
-                ac_desc = " | ".join(row[1:]) if len(row) > 1 else ""
-                has_ref = any(re.search(rf"\b{re.escape(fid)}\b", ac_desc) for fid in feature_ids)
+                row_text = " | ".join(row[1:]) if len(row) > 1 else ""
+                has_ref = any(fid in row_text for fid in feature_ids)
             if not has_ref and feature_ids:
-                self.add_issue(
-                    "acceptance_no_feature",
-                    "blocking",
-                    "§8 验收标准",
-                    f"验收项 {ac_id} 未关联任何功能点",
-                )
+                issues.append(Issue(check_id=self.check_id, severity="blocking",
+                                    location="§8 验收标准",
+                                    message=f"验收项 {ac_id} 未关联任何功能点"))
+        return issues
 
 
-class InteractionAuditor(DocumentAuditor):
-    """交互设计产物审计器"""
+class P0AcceptanceRule(Rule):
+    """PRD: 检查 §3 中标记为 P0 的功能是否在 §8 有验收标准"""
 
-    def run(self):
-        # 文档级检查
-        self.check_required_sections([
-            "设计系统引用", "页面结构", "组件交互", "状态机", "页面流程", "异常处理", "与 PRD 对应",
-        ])
+    def __init__(self, check_id: str):
+        self.check_id = check_id
 
-        # 提取所有页面章节文本（一级标题匹配页面编号格式）
-        # 页面编号格式由项目编码规则决定，支持任意前缀（如 PAGE-TICKET-001）
-        page_sections: List[str] = []
-        current_section = ""
-        for n in self.nodes:
-            # 匹配 §数字 后面跟着页面编号（支持任意前缀+数字格式，前缀可为单段或多段）
-            if n.type == "heading" and re.search(r"§\d+\s+[A-Z]+(?:-[A-Z]+)*-\d+", n.content):
-                if current_section:
-                    page_sections.append(current_section)
-                current_section = n.content + "\n"
-            elif current_section:
-                current_section += n.content + "\n"
-        if current_section:
-            page_sections.append(current_section)
-
-        if not page_sections and self.nodes:
-            # 豁免：Skill 模板/写作指南不包含真实页面章节
-            if "不要机械套用" not in self.raw_text:
-                self.add_issue(
-                    "missing_page_sections",
-                    "blocking",
-                    "交互设计产物",
-                    "未检测到任何符合格式的页面章节（如 §1 PAGE-TICKET-001），请确认页面编号格式",
-                )
-
-        # 每个页面检查 6 个必含子节 + 1 个可选子节（响应式适配）
-        for sec in page_sections:
-            pm = re.search(r"([A-Z]+(?:-[A-Z]+)*-\d+)", sec)
-            page_id = pm.group(1) if pm else "未知页面"
-            required_subs = ["页面结构", "组件交互", "状态机", "页面流程", "异常处理", "与 PRD 对应"]
-            for sub in required_subs:
-                if sub not in sec:
-                    self.add_issue(
-                        "missing_subsection",
-                        "blocking",
-                        f"{page_id} 交互设计",
-                        f"页面 {page_id} 缺少必含子节: {sub}",
-                    )
-            # 检查页面结构子节中是否包含 SVG 线框图
-            if "页面结构" in sec and "<svg" not in sec:
-                self.add_issue(
-                    "missing_svg_wireframe",
-                    "warning",
-                    f"{page_id} 页面结构",
-                    f"页面 {page_id} 的页面结构子节缺少 SVG 线框图",
-                )
-            # 检查组件交互子节是否包含力学约束
-            if "组件交互" in sec and "力学约束" not in sec:
-                self.add_hint(
-                    "missing_mechanical_constraints",
-                    "warning",
-                    f"{page_id} 组件交互",
-                    f"页面 {page_id} 的组件交互子节缺少力学约束列（超时、重试、防抖等），建议补充以完善骨架的力学属性",
-                )
-
-        # 边界检查：交互设计不写视觉
-        # 在页面章节中搜索硬编码色值（排除 SVG 代码块）
-        for sec in page_sections:
-            # 简单移除 SVG 代码块，避免误报 SVG 渲染属性
-            sec_without_svg = re.sub(r"<svg[\s\S]*?</svg>", "", sec)
-            if re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\s*\(", sec_without_svg):
-                pm = re.search(r"([A-Z]+-[A-Z]+-\d+)", sec)
-                page_id = pm.group(1) if pm else "未知页面"
-                self.add_hint(
-                    "visual_in_interaction",
-                    "warning",
-                    f"{page_id} 边界检查",
-                    f"页面 {page_id} 中发现硬编码色值（如 #RRGGBB 或 rgba()），交互设计应只定义结构和行为，视觉描述应移至 UI 设计",
-                )
-                break  # 只报一次，避免重复
-
-        # 页面编号连续性检查
-        page_ids = []
-        for sec in page_sections:
-            pm = re.search(r"([A-Z]+(?:-[A-Z]+)*-\d+)", sec)
-            if pm:
-                page_ids.append(pm.group(1))
-        if page_ids:
-            self._check_multi_prefix_continuity("\n".join(page_ids), "交互设计页面编号")
-
-        self.check_table_format()
-        self.check_upstream_references()
-
-
-class TechAuditor(DocumentAuditor):
-    """技术方案产物审计器"""
-
-    def run(self):
-        self.check_required_sections([
-            "技术决策", "依赖关系", "数据模型", "接口设计",
-            "状态机设计", "核心流程", "异常处理", "性能与扩展性",
-            "高可用设计", "安全设计", "监控与日志", "灰度与回滚",
-            "接口清单", "风险评估",
-        ])
-
-        sec3_text = self._section_text(r"§3\s+数据模型")
-        sec4_text = self._section_text(r"§4\s+接口设计")
-        sec7_text = self._section_text(r"§7\s+异常处理")
-        sec13_text = self._section_text(r"§13\s+接口清单")
-
-        self.check_table_format()
-        self.check_upstream_references()
-        self.check_interface_consistency(sec4_text, sec13_text)
-        # check_error_code_format 需要传入 error_prefixes 参数，当前无项目级配置，暂不调用
-        # self.check_error_code_format(error_prefixes=[...])
-
-        # §3 数据模型审计字段检查
-        audit_fields = ["created_at", "updated_at", "create_time", "update_time", "creator_id", "updater_id", "created_by", "updated_by"]
-        if sec3_text and not any(field in sec3_text for field in audit_fields):
-            self.add_hint(
-                "missing_audit_fields",
-                "warning",
-                "§3 数据模型",
-                "未检测到审计字段（如 created_at/updated_at/creator_id 等）。如项目技术-顶层定义有要求，请补充",
-            )
-
-        # §4 接口功能点标注检查：提取所有接口定义区块，检查是否包含功能编号
-        api_blocks = re.findall(r"`(?:GET|POST|PUT|DELETE|PATCH)\s+(/[\w/{}:.-]+)`([\s\S]*?)(?=```|$|`(?:GET|POST|PUT|DELETE|PATCH))", sec4_text)
-        for path, block in api_blocks:
-            if not ID_RE.search(block):
-                self.add_hint(
-                    "api_no_feature_ref",
-                    "warning",
-                    f"§4 接口设计 {path}",
-                    "接口定义中未标注对应的功能点编号，建议补充以便追溯",
-                )
-
-        # §7 每个异常场景对应 PRD 错误处理或模块特定异常
-        # 提取符合错误码格式的反引号内容（如 ERR-TICKET-001、TICKET-001）
-        ex_codes = re.findall(rf"`({ERROR_CODE_RE})`", sec7_text)
-        for code in set(ex_codes):
-            # 检查是否也在 §4 接口设计中出现
-            if code not in sec4_text:
-                self.add_hint(
-                    "exception_not_in_api",
-                    "info",
-                    "§7 异常处理",
-                    f"异常 {code} 在 §4 接口设计中未作为错误码返回（系统/第三方异常通常不逐接口列举，属正常情况）",
-                )
-
-    def check_interface_consistency(self, sec4_text: str, sec13_text: str):
-        """检查 §4 接口设计与 §13 接口清单是否一一对应"""
-        # §4 中接口通常在反引号内，如 `POST /api/v1/orders`
-        pattern_4 = r"`(GET|POST|PUT|DELETE|PATCH)\s+(/[\w/{}:.\-?=&]+)`"
-        paths_4 = set(re.findall(pattern_4, sec4_text))
-
-        # §13 中接口在表格单元格内，格式如 `| 提交订单 | POST | /api/v1/orders | ... |`
-        # 需要匹配方法列和路径列（中间有 | 分隔），路径可能被反引号包裹
-        pattern_13 = r"\|\s*(GET|POST|PUT|DELETE|PATCH)\s*\|\s*`?(/[\w/{}:.\-?=&]+)`?\s*\|"
-        paths_13 = set(re.findall(pattern_13, sec13_text))
-
-        missing_in_13 = paths_4 - paths_13
-        missing_in_4 = paths_13 - paths_4
-        for method, path in missing_in_13:
-            self.add_issue(
-                "interface_mismatch",
-                "blocking",
-                "§13 接口清单",
-                f"§4 中存在接口 {method} {path}，但 §13 接口清单中缺失",
-            )
-        for method, path in missing_in_4:
-            self.add_issue(
-                "interface_mismatch",
-                "blocking",
-                "§4 接口设计",
-                f"§13 接口清单中存在 {method} {path}，但 §4 中无详细定义",
-            )
-
-
-class UIAuditor(DocumentAuditor):
-    """UI 设计产物审计器（独立 HTML 文件）
-    
-    审计对象：用户产出的 UI 设计 HTML 文件（{页面组}.html）
-    不审计模板：skill 内部的 ui-step.md 模板不在本审计器范围内
-    """
-
-    def run(self):
-        text = self.raw_text
-
-        # 1. HTML 完整性
-        if not re.search(r"<!DOCTYPE\s+html", text, re.IGNORECASE):
-            self.add_issue("ui_html_incomplete", "blocking", "HTML", "缺少 <!DOCTYPE html>")
-        if not re.search(r"<html", text, re.IGNORECASE):
-            self.add_issue("ui_html_incomplete", "blocking", "HTML", "缺少 <html> 标签")
-
-        # 2. upstream 注释
-        if not re.search(r"<!--\s*upstream:", text):
-            self.add_issue("missing_upstream", "blocking", "HTML", "头部缺少 upstream 注释声明")
-
-        # 3. 提取 CSS 文本（<style> 标签内）
-        css_blocks = re.findall(r"<style[^>]*>([\s\S]*?)</style>", text)
-        css_text = "\n".join(css_blocks)
-
-        # 4. CSS 变量使用
-        if "var(--" not in css_text:
-            self.add_issue("ui_html_no_css_vars", "blocking", "CSS", "未使用 CSS 变量（var(--*)）")
-
-        # 5. 硬编码色值检查（排除 :root 中的变量定义）
-        non_root_css = re.sub(r":root\s*\{[^}]*\}", "", css_text, flags=re.DOTALL)
-        if re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\s*\(", non_root_css):
-            self.add_hint("ui_html_hardcoded_colors", "warning", "CSS",
-                          "发现硬编码色值（如 #RRGGBB 或 rgba()），应使用 CSS 变量引用 UI-顶层定义 Token")
-
-        # 6. 状态样式完整性
-        state_patterns = {
-            "hover": r":hover",
-            "active/pressed": r":active",
-            "focus": r":focus|:focus-visible",
-            "disabled": r"\.disabled|:disabled",
-            "loading": r"\.loading",
-            "empty": r"\.empty",
-            "error": r"\.error",
-            "success": r"\.success",
-            "skeleton": r"\.skeleton",
-        }
-        missing_states = [name for name, pat in state_patterns.items() if not re.search(pat, css_text)]
-        if missing_states:
-            self.add_hint("ui_html_missing_states", "warning", "CSS",
-                          f"可能缺少状态样式: {', '.join(missing_states)}")
-
-        # 7. 无 JS 业务逻辑
-        if re.search(r"\bfetch\b|\bXMLHttpRequest\b|\.ajax\b|axios\b", text):
-            self.add_issue("ui_html_has_business_logic", "blocking", "JS",
-                           "包含数据请求逻辑（fetch/XMLHttpRequest/axios），UI 原型应使用静态假数据")
-
-        # 8. 无行为事件（UI 不写行为）
-        behavior_patterns = [
-            r"\bonclick\s*=", r"\bonsubmit\s*=", r"\bonchange\s*=",
-            r"<form[^>]*\baction\s*=",
-            r"<a[^>]*\bhref\s*=\s*['\"][^#'\"]",
-            r"\blocation\.href\b", r"\bwindow\.open\b",
-        ]
-        if any(re.search(bp, text) for bp in behavior_patterns):
-            self.add_hint("behavior_in_ui", "warning", "HTML",
-                          "包含行为事件（onclick/onsubmit/onchange）或跳转逻辑（href/action），行为规则应移至交互设计")
-
-        # 9. 页面结构
-        sections = re.findall(r'<section[^>]*id="([^"]*)"', text)
-        if not sections:
-            self.add_hint("ui_html_no_sections", "warning", "HTML",
-                          '未检测到 <section id="page-xxx"> 页面结构')
-        else:
-            # 检查每个 section 是否有内容
-            for sec_id in sections:
-                sec_match = re.search(rf'<section[^>]*id="{re.escape(sec_id)}"[^>]*>([\s\S]*?)</section>', text)
-                if sec_match and len(sec_match.group(1).strip()) < 10:
-                    self.add_hint("ui_html_empty_section", "warning", f"section#{sec_id}",
-                                  f"页面 {sec_id} 内容过少，请补充静态假数据")
-
-        # 10. 状态映射表（关节层）
-        has_state_mapping = "状态映射表" in text or "交互状态" in text
-        if not has_state_mapping:
-            self.add_hint(
-                "ui_html_missing_state_mapping",
-                "warning",
-                "HTML",
-                "未检测到状态映射表注释。建议在 HTML 注释中显式声明'交互状态 → CSS 类/伪类 → Token'的映射关系，避免映射隐式散落在代码中",
-            )
-        else:
-            # 检查状态映射表是否为 4 列
-            table_blocks = []
-            current_table = []
-            for line in text.splitlines():
-                if line.strip().startswith("|"):
-                    current_table.append(line)
-                else:
-                    if current_table:
-                        table_blocks.append(current_table)
-                        current_table = []
-            if current_table:
-                table_blocks.append(current_table)
-            for table in table_blocks:
-                if not table:
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        sec3_table = extractor.table_after_heading(r"§3\s+功能需求")
+        p0_features = []
+        if sec3_table and len(sec3_table) > 1:
+            for row in sec3_table[1:]:
+                if not row or re.match(r"^:?-+:?$", row[0]):
                     continue
-                header = table[0]
-                cells = [c.strip() for c in header[1:].split("|")]
-                cells = [c for c in cells if c]
-                if any("交互状态" in c for c in cells):
-                    if len(cells) < 4:
-                        self.add_issue(
-                            "state_mapping_columns",
-                            "blocking",
-                            "UI",
-                            f"状态映射表表头只有 {len(cells)} 列，应为 4 列（交互状态 / CSS 类/伪类 / Token 变量 / 技术方案引用）",
-                        )
+                # 查找优先级列（通常包含 P0/P1/P2）
+                row_text = " | ".join(row)
+                if "P0" in row_text:
+                    p0_features.append(row[0].strip())
+
+        sec8_text = extractor.section_text(r"§8\s+验收标准")
+        issues = []
+        for fid in p0_features:
+            if fid not in sec8_text:
+                issues.append(Issue(check_id=self.check_id, severity="blocking",
+                                    location="§8 验收标准",
+                                    message=f"P0 功能点 {fid} 在 §8 中无对应验收标准"))
+        return issues
+
+
+class InternalRefRule(Rule):
+    """PRD: 检查 §3 功能编号是否在 §6/§7/§8 中被引用"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        sec3_table = extractor.table_after_heading(r"§3\s+功能需求")
+        feature_ids = set()
+        if sec3_table and len(sec3_table) > 1:
+            for row in sec3_table[1:]:
+                if row and not re.match(r"^:?-+:?$", row[0]):
+                    feature_ids.add(row[0].strip())
+
+        downstream_text = (extractor.section_text(r"§6\s+业务规则") +
+                           extractor.section_text(r"§7\s+错误处理") +
+                           extractor.section_text(r"§8\s+验收标准"))
+        issues = []
+        for fid in feature_ids:
+            if fid not in downstream_text:
+                issues.append(Issue(check_id=self.check_id, severity="warning",
+                                    location="内部自洽性",
+                                    message=f"功能点 {fid} 在 §6/§7/§8 中未被引用"))
+        return issues
+
+
+class SVGExistRule(Rule):
+    """交互设计: 检查每个页面是否包含 SVG 线框图"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        # 遍历所有页面章节（一级标题匹配页面编号格式）
+        issues = []
+        in_page = False
+        page_title = ""
+        page_content = ""
+        for line in extractor.lines:
+            if re.search(r"^##\s+§\d+\s+[A-Z]+(?:-[A-Z]+)*-\d+", line):
+                if in_page and "<svg" not in page_content:
+                    issues.append(Issue(check_id=self.check_id, severity="blocking",
+                                        location=page_title, message="页面缺少 SVG 线框图"))
+                in_page = True
+                page_title = line.strip()
+                page_content = ""
+            elif in_page:
+                page_content += line + "\n"
+        # 检查最后一个页面
+        if in_page and "<svg" not in page_content:
+            issues.append(Issue(check_id=self.check_id, severity="blocking",
+                                location=page_title, message="页面缺少 SVG 线框图"))
+        return issues
+
+
+class StateMatrixRule(Rule):
+    """交互设计: 检查组件状态矩阵是否包含指定列数"""
+
+    def __init__(self, check_id: str, expected_cols: int, col_name: str = ""):
+        self.check_id = check_id
+        self.expected_cols = expected_cols
+        self.col_name = col_name
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        issues = []
+        for idx, table in enumerate(data.tables, 1):
+            if not table or not table[0]:
+                continue
+            header = [c.strip() for c in table[0]]
+            # 识别状态矩阵：表头包含"默认"或"默认态"
+            if any("默认" in h for h in header):
+                if len(header) < self.expected_cols:
+                    issues.append(Issue(
+                        check_id=self.check_id, severity="blocking",
+                        location=f"状态矩阵 #{idx}",
+                        message=f"状态矩阵只有 {len(header)} 列，应为至少 {self.expected_cols} 列"
+                    ))
+        return issues
+
+
+class PageFlowColumnsRule(Rule):
+    """交互设计: 检查页面流程表格是否包含指定列"""
+
+    def __init__(self, check_id: str, required_cols: List[str]):
+        self.check_id = check_id
+        self.required_cols = required_cols
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        issues = []
+        for idx, table in enumerate(data.tables, 1):
+            if not table or not table[0]:
+                continue
+            header = [c.strip() for c in table[0]]
+            # 识别页面流程表：包含"前置条件"或"用户操作"
+            if any("前置条件" in h or "用户操作" in h for h in header):
+                for col in self.required_cols:
+                    if col not in header:
+                        issues.append(Issue(
+                            check_id=self.check_id, severity="blocking",
+                            location=f"页面流程 #{idx}",
+                            message=f"缺少必填列: {col}"
+                        ))
+        return issues
+
+
+class ExceptionColumnsRule(Rule):
+    """交互设计: 检查异常处理表格是否包含指定列"""
+
+    def __init__(self, check_id: str, required_cols: List[str]):
+        self.check_id = check_id
+        self.required_cols = required_cols
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        issues = []
+        for idx, table in enumerate(data.tables, 1):
+            if not table or not table[0]:
+                continue
+            header = [c.strip() for c in table[0]]
+            # 识别异常处理表：包含"异常场景"或"触发条件"
+            if any("异常场景" in h or "触发条件" in h for h in header):
+                for col in self.required_cols:
+                    if col not in header:
+                        issues.append(Issue(
+                            check_id=self.check_id, severity="blocking",
+                            location=f"异常处理 #{idx}",
+                            message=f"缺少必填列: {col}"
+                        ))
+        return issues
+
+
+class UIStateMapRule(Rule):
+    """UI: 检查状态映射表是否包含 4 个字段"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        issues = []
+        for idx, table in enumerate(data.tables, 1):
+            if not table or not table[0]:
+                continue
+            header = [c.strip() for c in table[0]]
+            # 识别状态映射表：包含"交互状态"
+            if any("交互状态" in h for h in header):
+                if len(header) < 4:
+                    issues.append(Issue(
+                        check_id=self.check_id, severity="blocking",
+                        location=f"状态映射表 #{idx}",
+                        message=f"状态映射表只有 {len(header)} 列，应为 4 列（交互状态 / CSS 类/伪类 / Token 变量 / 技术方案引用）"
+                    ))
+        return issues
+
+
+class UIClassConsistencyRule(Rule):
+    """UI: 检查状态映射表中的 CSS 类名是否在 HTML 中存在"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        extractor = MarkdownExtractor(data.raw_text)
+        # 从所有表格中提取 CSS 类名（交互状态列和 CSS 类/伪类列）
+        map_classes = set()
+        for table in data.tables:
+            if not table or not table[0]:
+                continue
+            header = [c.strip() for c in table[0]]
+            if not any("交互状态" in h for h in header):
+                continue
+            css_idx = -1
+            for i, h in enumerate(header):
+                if "CSS" in h or "类" in h:
+                    css_idx = i
                     break
+            if css_idx < 0:
+                continue
+            for row in table[2:]:
+                if len(row) > css_idx:
+                    val = row[css_idx].strip()
+                    # 提取类名，如 :hover → hover, .disabled → disabled
+                    for cls in re.findall(r'\.([\w-]+)', val):
+                        map_classes.add(cls)
+                    for pseudo in re.findall(r':([\w-]+)', val):
+                        map_classes.add(pseudo)
+
+        # 从 HTML 中提取 class 属性
+        html_classes = set()
+        for m in re.finditer(r'class=["\']([^"\']+)["\']', data.raw_text):
+            html_classes.update(m.group(1).split())
+        for m in re.finditer(r'<(\w+)[^>]*>', data.raw_text):
+            tag = m.group(1)
+            if tag in ("section", "div", "span", "button", "input"):
+                # 从标签中提取可能的状态类
+                pass  # 已由 class 属性捕获
+
+        missing = map_classes - html_classes
+        issues = []
+        if missing:
+            issues.append(Issue(
+                check_id=self.check_id, severity="warning",
+                location="CSS 类一致性",
+                message=f"状态映射表中的类在 HTML 中未找到: {', '.join(sorted(missing))}"
+            ))
+        return issues
 
 
-class TestAuditor(DocumentAuditor):
-    """测试报告审计器"""
+class StateStyleExistRule(Rule):
+    """UI: 检查 HTML 中是否包含关键状态样式类/伪类"""
 
-    def run(self):
-        self.check_required_sections([
-            "功能测试用例", "异常测试用例", "性能测试",
-            "安全测试", "兼容性测试", "覆盖检查报告", "回归测试策略",
-        ])
+    def __init__(self, check_id: str, required_states: List[str]):
+        self.check_id = check_id
+        self.required_states = required_states
 
-        sec1_text = self._section_text(r"§1\s+功能测试用例")
-        sec2_text = self._section_text(r"§2\s+异常测试用例")
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        css = ""
+        for lang, content in data.code_blocks:
+            if lang in ("css", "", "html") or "style" in lang.lower():
+                css += content + "\n"
+        # 如果没有 code block，尝试从 HTML 中提取 style 标签内容
+        if not css:
+            css_match = re.search(r"<style[^>]*>([\s\S]*?)</style>", data.raw_text)
+            if css_match:
+                css = css_match.group(1)
 
-        # 测试用例编号格式检查：提取所有 TC- 开头的编号并检查连续性
-        tc_ids = ID_RE.findall(sec1_text + sec2_text)
-        tc_lines = "\n".join(i for i in tc_ids if i.startswith("TC-"))
-        if tc_lines:
-            self._check_multi_prefix_continuity(tc_lines, "测试用例编号")
-
-        self.check_table_format()
-        self.check_upstream_references()
-
-        # §6 覆盖检查报告中每个验收标准在 §1/§2 中有对应用例
-        sec6_text = self._section_text(r"§6\s+覆盖检查报告")
-        all_cases = sec1_text + sec2_text
-        # 验收标准编号格式由项目自定义（如 ACC-001），不硬编码为 §8.x
-        # 从覆盖检查报告表格中提取验收标准编号（跳过表头、分隔行和空首列）
-        sec6_table = self._extract_table_after(r"§6\s+覆盖检查报告")
-        ac_ids = []
-        if sec6_table:
-            for row in sec6_table:
-                if row and row[0].strip() and not re.match(r"^:?-+:?$", row[0]) \
-                        and row[0].strip() not in ("验收标准编号", "编号", "ID"):
-                    ac_ids.append(row[0].strip())
-        for ac_id in ac_ids:
-            if ac_id not in all_cases:
-                self.add_issue(
-                    "uncovered_acceptance",
-                    "blocking",
-                    "§6 覆盖检查报告",
-                    f"验收标准 {ac_id} 在 §1/§2 中无对应测试用例",
-                )
-
-class GlobalPRDAuditor(DocumentAuditor):
-    """PRD 顶层定义审计器"""
-
-    def run(self):
-        self.check_required_sections([
-            "产品概述", "全局功能范围", "版本里程碑",
-            "术语表", "状态值", "编码规则", "待决策问题",
-        ])
-        self.check_table_format()
-        # check_error_code_format 需要传入 error_prefixes 参数，当前无项目级配置，暂不调用
-        # self.check_error_code_format(error_prefixes=[...])
-
-        # 检查是否出现"后续版本"等延迟占位（里程碑表除外）
-        # 豁免：Skill 模板/写作指南中常出现这些词作为示例或说明
-        body = self.raw_text
-        if "AI 指令：此文件是 Skill 内部使用的" in body or "顶层定义模板（meta）" in body:
-            pass  # 跳过模板文件的延迟占位检查
-        else:
-            # 去掉 §3 版本里程碑章节
-            # 使用正则精确定位 heading 行，避免正文引用误匹配
-            m_start = re.search(r"^##\s+§3\s+版本里程碑", body, re.MULTILINE)
-            m_end = re.search(r"^##\s+§4\s+", body, re.MULTILINE)
-            if m_start and m_end:
-                body = body[:m_start.start()] + body[m_end.start():]
-            prohibited = ["后续版本", "v1.x+", "后续迭代", "后续补充"]
-            for word in prohibited:
-                if word in body:
-                    self.add_issue(
-                        "placeholder_detected",
-                        "blocking",
-                        "顶层定义",
-                        f"正文出现延迟实现占位词: '{word}'（里程碑表除外）",
-                    )
+        issues = []
+        for state in self.required_states:
+            pattern = rf"\.{re.escape(state)}\b|:{re.escape(state)}\b"
+            if not re.search(pattern, css):
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="CSS 状态样式",
+                    message=f"缺少状态样式: {state}"
+                ))
+        return issues
 
 
-class GlobalTechAuditor(DocumentAuditor):
-    """技术顶层定义审计器"""
+class TechAuditFieldRule(Rule):
+    """技术方案: 检查数据模型中是否包含审计字段"""
 
-    def run(self):
-        self.check_required_sections([
-            "技术栈", "工程结构", "公共模块",
-            "公共表定义", "全局接口约定", "全局安全规范", "基础设施",
-        ])
-        self.check_table_format()
+    def __init__(self, check_id: str, audit_fields: List[str]):
+        self.check_id = check_id
+        self.audit_fields = audit_fields
 
-        # 检查 2.5.2 统一响应结构包含 code/message/data/traceId/timestamp
-        sec25_text = self._section_text(r"§?2\.5\.2.*响应结构|统一响应结构")
-        missing_fields = []
-        for field in ("code", "message", "data", "traceId", "timestamp"):
-            if field not in sec25_text:
-                missing_fields.append(field)
-        if missing_fields:
-            self.add_issue(
-                "response_structure",
-                "blocking",
-                "§2.5.2 统一响应结构",
-                f"未明确声明响应结构包含字段: {', '.join(missing_fields)}",
-            )
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        sec3_text = extractor.section_text(r"§3\s+数据模型")
+        if not sec3_text:
+            return []
+        issues = []
+        if not any(field in sec3_text for field in self.audit_fields):
+            issues.append(Issue(
+                check_id=self.check_id, severity="warning",
+                location="§3 数据模型",
+                message="未检测到审计字段（如 created_at/updated_at/creator_id 等）"
+            ))
+        return issues
 
 
-# 错误码格式正则（模块级常量，统一标准）
-ERROR_CODE_RE = r"[A-Z][A-Z0-9_]*(?:-[A-Z][A-Z0-9_]*)*-\d+"
+class TechInterfaceElementsRule(Rule):
+    """技术方案: 检查接口定义是否包含指定要素"""
+
+    def __init__(self, check_id: str, required_elements: List[str]):
+        self.check_id = check_id
+        self.required_elements = required_elements
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        sec4_text = extractor.section_text(r"§4\s+接口设计")
+        # 简单检查：接口定义通常以反引号包裹的 HTTP 方法开头
+        api_blocks = re.findall(r"`(GET|POST|PUT|DELETE|PATCH)\s+(/[\w/{}:.\-]+)`([\s\S]*?)(?=```|$|`(?:GET|POST|PUT|DELETE|PATCH))", sec4_text)
+        issues = []
+        for method, path, block in api_blocks:
+            for elem in self.required_elements:
+                if elem not in block:
+                    issues.append(Issue(
+                        check_id=self.check_id, severity="warning",
+                        location=f"接口 {method} {path}",
+                        message=f"缺少要素: {elem}"
+                    ))
+        return issues
+
+
+class TestCaseFormatRule(Rule):
+    """测试: 检查用例表格是否包含指定列"""
+
+    def __init__(self, check_id: str, required_cols: List[str]):
+        self.check_id = check_id
+        self.required_cols = required_cols
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        issues = []
+        for idx, table in enumerate(data.tables, 1):
+            if not table or not table[0]:
+                continue
+            header = [c.strip() for c in table[0]]
+            # 识别测试用例表：包含"前置条件"或"测试步骤"
+            if any("前置条件" in h or "测试步骤" in h for h in header):
+                for col in self.required_cols:
+                    if col not in header:
+                        issues.append(Issue(
+                            check_id=self.check_id, severity="blocking",
+                            location=f"测试用例表 #{idx}",
+                            message=f"缺少必填列: {col}"
+                        ))
+        return issues
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 4. 下游影响扫描器
+# 4. 各产物类型的规则集
 # ═══════════════════════════════════════════════════════════════════════════════
 
+PRD_RULES: List[Rule] = [
+    SectionExistsRule("P-A1", [
+        "背景与目标", "用户与场景", "功能需求", "非功能需求",
+        "数据模型", "业务规则", "错误处理", "验收标准", "依赖与范围", "附件",
+    ]),
+    FeatureTableColumnsRule("P-A7", ["功能编号", "故事编号", "功能名称", "优先级", "交互方式"]),
+    IdDuplicateRule("P-A6"),
+    IdContinuityRule("P-A6"),
+    InternalRefRule("P-A13"),
+    AcceptanceFeatureRefRule("P-A12"),
+    P0AcceptanceRule("P-A14"),
+    TableFormatRule("P-A15"),
+    UpstreamRefRule("P-B4"),
+]
+
+INTERACTION_RULES: List[Rule] = [
+    SVGExistRule("I-A3"),
+    StateMatrixRule("I-A5", expected_cols=6),
+    StateMatrixRule("I-A6", expected_cols=7, col_name="力学约束"),
+    PageFlowColumnsRule("I-A8", ["前置条件", "用户操作", "系统响应", "反馈方式", "后置状态"]),
+    ExceptionColumnsRule("I-A9", ["异常场景", "触发条件", "系统响应", "用户感知", "恢复路径"]),
+    TableFormatRule("I-A12"),
+    UpstreamRefRule("I-B5"),
+]
+
+UI_RULES: List[Rule] = [
+    RegexMatchRule("U-A1", r"<!DOCTYPE\s+html", "", severity="blocking",
+                   message="缺少 <!DOCTYPE html>"),
+    RegexMatchRule("U-A2", r"<!--\s*upstream:", "", severity="blocking",
+                   message="头部缺少 upstream 注释声明"),
+    RegexMatchRule("U-A3", r"\bfetch\b|\bXMLHttpRequest\b|\.ajax\b|axios\b", "",
+                   should_match=False, severity="blocking",
+                   message="包含数据请求逻辑，UI 原型应使用静态假数据"),
+    RegexMatchRule("U-A5", r"var\(--", "", severity="blocking",
+                   message="未使用 CSS 变量（var(--*)）"),
+    RegexMatchRule("U-A6", r"#[0-9a-fA-F]{3,8}\b|rgba?\s*\(", "", should_match=False,
+                   severity="warning", message="发现硬编码色值，应使用 CSS 变量"),
+    UIStateMapRule("U-A7"),
+    UIClassConsistencyRule("U-A8"),
+    StateStyleExistRule("U-B3", ["hover", "active", "focus", "disabled", "loading", "empty", "error", "success", "skeleton"]),
+    TableFormatRule("U-A12"),
+    UpstreamRefRule("U-B6"),
+]
+
+TECH_RULES: List[Rule] = [
+    SectionExistsRule("T-A1", [
+        "技术决策", "依赖关系", "数据模型", "接口设计", "状态机设计",
+        "核心流程", "异常处理", "性能与扩展性", "高可用设计", "安全设计",
+        "监控与日志", "灰度与回滚", "接口清单", "风险评估",
+    ]),
+    TechAuditFieldRule("T-A2", ["created_at", "updated_at", "creator_id", "updater_id", "created_by", "updated_by"]),
+    TechInterfaceElementsRule("T-A4", ["URL", "方法", "请求参数", "响应结构", "错误码"]),
+    TableFormatRule("T-A12"),
+    UpstreamRefRule("T-B12"),
+]
+
+TEST_RULES: List[Rule] = [
+    SectionExistsRule("S-A1", [
+        "功能测试用例", "异常测试用例", "性能测试",
+        "安全测试", "兼容性测试", "覆盖检查报告", "回归测试策略",
+    ]),
+    TestCaseFormatRule("S-A2", ["前置条件", "测试步骤", "预期结果"]),
+    TableFormatRule("S-A11"),
+    UpstreamRefRule("S-B9"),
+]
+
+
+RULE_SETS = {
+    "prd": PRD_RULES,
+    "interaction": INTERACTION_RULES,
+    "ui": UI_RULES,
+    "tech": TECH_RULES,
+    "test": TEST_RULES,
+}
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
-# 编号提取工具（跨格式）
+# 5. 引擎层
 # ═══════════════════════════════════════════════════════════════════════════════
 
-ID_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*(?:-[A-Za-z][A-Za-z0-9_]*)*(?:-\d+)+")
+class AuditEngine:
+    """审计引擎：提取数据 → 加载规则 → 执行检查 → 汇总结果"""
+
+    def __init__(self, doc_path: str, doc_type: str, upstream_paths: Optional[List[str]] = None):
+        self.doc_path = Path(doc_path)
+        self.doc_type = doc_type
+        self.raw_text = self.doc_path.read_text(encoding="utf-8")
+        self.data = self._extract()
+        self.ctx = AuditContext(doc_path=self.doc_path, doc_type=doc_type)
+        self._load_upstream(upstream_paths or [])
+
+    def _extract(self) -> ExtractedData:
+        if self.doc_path.suffix == ".html":
+            return HTMLExtractor(self.raw_text).extract()
+        return MarkdownExtractor(self.raw_text).extract()
+
+    def _detect_template(self) -> bool:
+        """检测是否为产物模板（包含示例说明，非实际产物）"""
+        markers = ["填写示例", "不要机械套用", "常见陷阱", "产物模板"]
+        return any(m in self.raw_text for m in markers)
+
+    def _load_upstream(self, upstream_paths: List[str]):
+        for up_path in upstream_paths:
+            p = Path(up_path)
+            if p.exists():
+                text = p.read_text(encoding="utf-8")
+                if p.suffix == ".html":
+                    self.ctx.upstream_docs[str(p)] = HTMLExtractor(text).extract()
+                else:
+                    self.ctx.upstream_docs[str(p)] = MarkdownExtractor(text).extract()
+
+    def run(self) -> dict:
+        self.ctx.is_template = self._detect_template()
+        rules = RULE_SETS.get(self.doc_type, [])
+        issues: List[Issue] = []
+        for rule in rules:
+            issues.extend(rule.check(self.data, self.ctx))
+
+        blocking = [i for i in issues if i.severity == "blocking"]
+        return {
+            "passed": len(blocking) == 0,
+            "doc": str(self.doc_path),
+            "mechanical_issues": [
+                {"check_id": i.check_id, "severity": i.severity,
+                 "location": i.location, "message": i.message}
+                for i in issues
+            ],
+            "summary": {
+                "blocking": len(blocking),
+                "warning": len([i for i in issues if i.severity == "warning"]),
+                "info": len([i for i in issues if i.severity == "info"]),
+            },
+        }
 
 
-def extract_ids(text: str, prefix: Optional[str] = None) -> Set[str]:
-    """从文本中提取编号标识符（如 USER-001, PAGE-TICKET-001, ERR-AUTH-003）。
-    
-    Args:
-        text: 待扫描文本
-        prefix: 若提供，只返回以该前缀开头的编号（如 "USER" 匹配 USER-001 但不匹配 PAGE-001）
-    
-    Returns:
-        去重后的编号集合（统一大写）
-    """
-    ids = set(ID_RE.findall(text))
-    # 统一大写，避免 page-user-001 与 PAGE-USER-001 被视为不同编号
-    ids = {i.upper() for i in ids}
-    if prefix:
-        p = prefix.upper()
-        ids = {i for i in ids if i.startswith(p + "-") or i == p}
-    return ids
-
+# ═══════════════════════════════════════════════════════════════════════════════
+# 6. 下游扫描
+# ═══════════════════════════════════════════════════════════════════════════════
 
 def scan_downstream(doc_path: Path, docs_dir: Path) -> List[dict]:
-    """扫描 docs_dir 下所有 Markdown 和 HTML 产物，找出引用了 doc_path 的下游产物。
-    
-    对 Markdown 产物：检查 upstream-document 表格。
-    对 HTML 产物：检查 <!-- upstream: ... --> 注释。
-    """
     downstream: List[dict] = []
     target_name = doc_path.stem
-    
-    # ── 扫描 Markdown 产物 ──
+
     for md_file in docs_dir.rglob("*.md"):
         if md_file.resolve() == doc_path.resolve():
             continue
@@ -1161,14 +1193,12 @@ def scan_downstream(doc_path: Path, docs_dir: Path) -> List[dict]:
                 search_area,
             )
             if scope_match:
-                scope = scope_match.group(1).strip()
                 downstream.append({
                     "path": str(md_file.relative_to(docs_dir)),
-                    "scope": scope,
+                    "scope": scope_match.group(1).strip(),
                     "type": "markdown",
                 })
-    
-    # ── 扫描 HTML 产物 ──
+
     for html_file in docs_dir.rglob("*.html"):
         if html_file.resolve() == doc_path.resolve():
             continue
@@ -1176,11 +1206,9 @@ def scan_downstream(doc_path: Path, docs_dir: Path) -> List[dict]:
             text = html_file.read_text(encoding="utf-8")
         except Exception:
             continue
-        # 检查 <!-- upstream: ... --> 注释中是否出现 target_name
         upstream_comments = re.findall(r"<!--\s*upstream:([^>]+)-->", text, re.IGNORECASE)
         for comment in upstream_comments:
             if target_name in comment:
-                # 提取 scope：upstream 注释中 target_name 后面的部分
                 scope_match = re.search(
                     rf"{re.escape(target_name)}(?:\.md)?\s*,?\s*([^,\n]+)?",
                     comment,
@@ -1191,160 +1219,20 @@ def scan_downstream(doc_path: Path, docs_dir: Path) -> List[dict]:
                     "scope": scope,
                     "type": "html",
                 })
-                break  # 一个 HTML 文件只加一次
-    
+                break
     return downstream
 
 
-class GlobalInteractionAuditor(DocumentAuditor):
-    """交互顶层定义审计器"""
-
-    def run(self):
-        self.check_required_sections([
-            "交互令牌", "交互状态规范",
-            "交互反馈规范", "交互规范",
-        ])
-        self.check_table_format()
-
-        # 检查 §2 交互状态规范包含 6 基础 + 4 异步状态
-        sec2_text = self._section_text(r"§?2\s+(?:交互状态|交互状态规范)")
-        base_states = ["默认态", "悬停态", "按下态", "聚焦态", "禁用态", "加载态"]
-        async_states = ["空状态", "错误状态", "成功状态", "骨架态"]
-        missing_base = [s for s in base_states if s not in sec2_text]
-        missing_async = [s for s in async_states if s not in sec2_text]
-        if missing_base:
-            self.add_issue(
-                "interaction_state_incomplete",
-                "blocking",
-                "§2 交互状态规范",
-                f"缺少基础交互状态定义: {', '.join(missing_base)}",
-            )
-        if missing_async:
-            self.add_issue(
-                "interaction_state_incomplete",
-                "blocking",
-                "§2 交互状态规范",
-                f"缺少异步/边界状态定义: {', '.join(missing_async)}",
-            )
-
-        # 检查 §3 交互反馈规范包含四类反馈时效红线
-        sec3_text = self._section_text(r"§?3\s+(?:交互反馈|交互反馈规范)")
-        feedback_types = ["点击响应", "弹窗出现", "页面切换", "异步提交"]
-        missing_fb = [f for f in feedback_types if f not in sec3_text]
-        if missing_fb:
-            self.add_issue(
-                "feedback_redline_missing",
-                "warning",
-                "§3 交互反馈规范",
-                f"建议包含反馈时效红线: {', '.join(missing_fb)}",
-            )
-
-        # 检查 §6 平台交互规范（如存在）
-        sec6_match = re.search(r"§?6\s+平台交互规范", self.raw_text)
-        if sec6_match:
-            sec6_text = self._section_text(r"§?6\s+(?:平台交互规范)")
-            platforms = ["Web", "App", "小程序"]
-            found_platforms = [p for p in platforms if p in sec6_text]
-            if not found_platforms:
-                self.add_issue(
-                    "platform_interaction_empty",
-                    "warning",
-                    "§6 平台交互规范",
-                    "平台交互规范章节存在但未声明任何平台类型（Web/App/小程序）",
-                )
-
-
-class GlobalUIAuditor(DocumentAuditor):
-    """UI 顶层定义审计器"""
-
-    def run(self):
-        self.check_required_sections([
-            "设计原则", "设计令牌体系", "色彩系统",
-            "字体系统", "间距与布局系统", "形状系统",
-            "阴影与海拔", "组件库",
-        ])
-        self.check_table_format()
-
-        # 检查 §11 组件库包含全局状态规范
-        sec11_text = self._section_text(r"§?11\s+(?:组件库)")
-        if "全局状态规范" not in sec11_text:
-            self.add_issue(
-                "ui_component_state_missing",
-                "blocking",
-                "§11 组件库",
-                "组件库章节未声明全局状态规范",
-            )
-
-        # 检查 §12 平台视觉规范（如存在）
-        sec12_match = re.search(r"§?12\s+平台视觉规范", self.raw_text)
-        if sec12_match:
-            sec12_text = self._section_text(r"§?12\s+(?:平台视觉规范)")
-            dimensions = ["状态差异", "组件尺寸", "安全区", "字体", "色彩", "动效"]
-            found_dims = [d for d in dimensions if d in sec12_text]
-            if not found_dims:
-                self.add_issue(
-                    "platform_visual_empty",
-                    "warning",
-                    "§12 平台视觉规范",
-                    "平台视觉规范章节存在但未声明任何视觉差异维度",
-                )
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
-# 5. 入口
+# 7. CLI
 # ═══════════════════════════════════════════════════════════════════════════════
-
-AUDITOR_MAP = {
-    "prd": PRDAuditor,
-    "interaction": InteractionAuditor,
-    "ui": UIAuditor,
-    "tech": TechAuditor,
-    "test": TestAuditor,
-    "global-prd": GlobalPRDAuditor,
-    "global-tech": GlobalTechAuditor,
-    "global-interaction": GlobalInteractionAuditor,
-    "global-ui": GlobalUIAuditor,
-}
-
 
 def main():
-    parser = argparse.ArgumentParser(description="产物一致性审计工具")
+    parser = argparse.ArgumentParser(description="产物一致性审计规则引擎")
     parser.add_argument("doc_path", help="待审计产物路径")
-    parser.add_argument(
-        "--type",
-        required=True,
-        choices=list(AUDITOR_MAP.keys()),
-        help="产物类型",
-    )
-    parser.add_argument(
-        "--upstream",
-        nargs="*",
-        default=[],
-        help="上游文档路径（可多个）",
-    )
-    parser.add_argument(
-        "--delta",
-        default="",
-        help="增量审计范围，逗号分隔（标识符格式以项目 PRD-顶层定义为准）",
-    )
-    parser.add_argument(
-        "--scan-downstream",
-        metavar="DIR",
-        default="",
-        help="扫描指定目录下的下游引用，输出受影响文档清单",
-    )
-    parser.add_argument(
-        "--terms",
-        nargs="*",
-        default=[],
-        help="项目术语表（用于术语一致性检查）",
-    )
-    parser.add_argument(
-        "--error-prefixes",
-        nargs="*",
-        default=[],
-        help="错误码前缀列表（如 ERR AUTH），用于验证错误码格式",
-    )
+    parser.add_argument("--type", required=True, choices=list(RULE_SETS.keys()), help="产物类型")
+    parser.add_argument("--upstream", nargs="*", default=[], help="上游文档路径")
+    parser.add_argument("--scan-downstream", metavar="DIR", default="", help="扫描下游引用")
     args = parser.parse_args()
 
     doc_path = Path(args.doc_path)
@@ -1352,49 +1240,24 @@ def main():
         print(json.dumps({"error": f"文件不存在: {doc_path}"}, ensure_ascii=False))
         sys.exit(1)
 
-    # 下游扫描模式
     if args.scan_downstream:
         docs_dir = Path(args.scan_downstream)
         if not docs_dir.is_dir():
             print(json.dumps({"error": f"目录不存在: {docs_dir}"}, ensure_ascii=False))
             sys.exit(1)
         downstream = scan_downstream(doc_path, docs_dir)
-        print(
-            json.dumps(
-                {
-                    "mode": "downstream_scan",
-                    "doc": str(doc_path),
-                    "downstream_count": len(downstream),
-                    "downstream": downstream,
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
-        )
+        print(json.dumps({
+            "mode": "downstream_scan",
+            "doc": str(doc_path),
+            "downstream_count": len(downstream),
+            "downstream": downstream,
+        }, ensure_ascii=False, indent=2))
         sys.exit(0)
 
-    # 审计模式
-    delta_scope = [s.strip() for s in args.delta.split(",") if s.strip()]
-    auditor_cls = AUDITOR_MAP[args.type]
-    auditor = auditor_cls(
-        doc_path=str(doc_path),
-        upstream_paths=args.upstream,
-        delta_scope=delta_scope,
-    )
-    # 执行审计
-    auditor.run()
-    # 如提供了术语表，追加术语一致性检查
-    if args.terms:
-        auditor.check_term_consistency(args.terms)
-    # 如提供了错误码前缀，追加错误码格式检查
-    if args.error_prefixes:
-        auditor.check_error_code_format(error_prefixes=args.error_prefixes)
-    # 如提供了上游文档，追加跨产物编号对齐检查
-    if args.upstream:
-        auditor.check_upstream_id_alignment()
-    report = auditor.report()
-    print(json.dumps(report, ensure_ascii=False, indent=2))
-    sys.exit(0 if report["passed"] else 1)
+    engine = AuditEngine(str(doc_path), args.type, upstream_paths=args.upstream)
+    result = engine.run()
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    sys.exit(0 if result["passed"] else 1)
 
 
 if __name__ == "__main__":
