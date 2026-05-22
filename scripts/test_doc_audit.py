@@ -3,11 +3,14 @@
 
 import subprocess, json, tempfile, os
 
-def run_audit(doc_path, doc_type, upstream_paths=None):
+def run_audit(doc_path, doc_type, upstream_paths=None, top_level_paths=None):
     cmd = ["python3", "scripts/doc-audit.py", doc_path, "--type", doc_type]
     if upstream_paths:
         for up in upstream_paths:
             cmd.extend(["--upstream", up])
+    if top_level_paths:
+        for tl in top_level_paths:
+            cmd.extend(["--top-level", tl])
     return json.loads(subprocess.run(cmd, capture_output=True, text=True).stdout)
 
 def test_bidirectional_mapping():
@@ -247,6 +250,349 @@ def test_interface_test_coverage():
     finally:
         os.unlink(tech); os.unlink(test)
 
+# --- 本轮新增测试 ---
+
+def test_top_level_state_value():
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', prefix='prd-top-level-', delete=False) as f:
+        f.write("""# PRD-顶层定义
+
+## §5 状态值
+| 字段名 | 状态值 | 说明 |
+|--------|--------|------|
+| 工单状态 | PENDING | 待处理 |
+| 工单状态 | CLOSED | 已关闭 |
+""")
+        top = f.name
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        f.write("""# PRD
+
+## §6 业务规则
+当工单状态为 PENDING 时...
+当工单状态为 UNKNOWN 时...
+""")
+        prd = f.name
+    try:
+        r = run_audit(prd, "prd", top_level_paths=[top])
+        msgs = [i["message"] for i in r["mechanical_issues"] if i["check_id"] == "P-B1"]
+        assert any("UNKNOWN" in m for m in msgs)
+        assert not any("PENDING" in m for m in msgs)
+        print("✅ test_top_level_state_value")
+    finally:
+        os.unlink(top); os.unlink(prd)
+
+def test_top_level_error_code_format():
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', prefix='prd-top-level-', delete=False) as f:
+        f.write("""# PRD-顶层定义
+
+## §6 编码规则
+| 编码类型 | 前缀 |
+|---------|------|
+| 错误码 | ERR |
+""")
+        top = f.name
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        f.write("""# PRD
+
+## §7 错误处理
+| 错误码 | 触发场景 |
+|--------|---------|
+| ERR-001 | 网络错误 |
+| BAD-001 | 参数错误 |
+""")
+        prd = f.name
+    try:
+        r = run_audit(prd, "prd", top_level_paths=[top])
+        msgs = [i["message"] for i in r["mechanical_issues"] if i["check_id"] == "P-B6"]
+        assert any("BAD-001" in m for m in msgs)
+        assert not any("ERR-001" in m for m in msgs)
+        print("✅ test_top_level_error_code_format")
+    finally:
+        os.unlink(top); os.unlink(prd)
+
+def test_top_level_id_prefix():
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', prefix='prd-top-level-', delete=False) as f:
+        f.write("""# PRD-顶层定义
+
+## §6 编码规则
+| 编码类型 | 前缀 |
+|---------|------|
+| 功能编号 | USER |
+""")
+        top = f.name
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        f.write("""# PRD
+
+## §3 功能需求
+| 功能编号 | 名称 |
+|---------|------|
+| USER-001 | A |
+| ORDER-001 | B |
+""")
+        prd = f.name
+    try:
+        r = run_audit(prd, "prd", top_level_paths=[top])
+        msgs = [i["message"] for i in r["mechanical_issues"] if i["check_id"] == "P-B2"]
+        assert any("ORDER-001" in m for m in msgs)
+        assert not any("USER-001" in m for m in msgs)
+        print("✅ test_top_level_id_prefix")
+    finally:
+        os.unlink(top); os.unlink(prd)
+
+def test_top_level_enum():
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', prefix='prd-top-level-', delete=False) as f:
+        f.write("""# PRD-顶层定义
+
+## §5 状态值
+| 字段名 | 状态值 |
+|--------|--------|
+| 状态 | ACTIVE |
+""")
+        top = f.name
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        f.write("""# PRD
+
+## §5 数据模型
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| status | VARCHAR | ENUM('ACTIVE','INACTIVE','UNKNOWN') | 状态 |
+""")
+        prd = f.name
+    try:
+        r = run_audit(prd, "prd", top_level_paths=[top])
+        msgs = [i["message"] for i in r["mechanical_issues"] if i["check_id"] == "P-B7"]
+        assert any("'UNKNOWN'" in m for m in msgs)
+        assert not any("'ACTIVE'" in m for m in msgs)
+        print("✅ test_top_level_enum")
+    finally:
+        os.unlink(top); os.unlink(prd)
+
+def test_ui_top_level_token():
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', prefix='ui-top-level-', delete=False) as f:
+        f.write("""# UI-顶层定义
+
+## §3 Token
+| Token | 用途 |
+|-------|------|
+| --color-primary | 主色 |
+""")
+        top = f.name
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        f.write("""<!DOCTYPE html><html><head><style>
+        :root { --color-primary: #1890ff; --custom-red: #ff0000; }
+        </style></head><body></body></html>""")
+        html = f.name
+    try:
+        r = run_audit(html, "ui", top_level_paths=[top])
+        msgs = [i["message"] for i in r["mechanical_issues"] if i["check_id"] == "U-B4"]
+        assert any("custom-red" in m for m in msgs)
+        assert not any("color-primary" in m for m in msgs)
+        print("✅ test_ui_top_level_token")
+    finally:
+        os.unlink(top); os.unlink(html)
+
+def test_tech_top_level_field_naming():
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        f.write("""# Tech
+
+## §3 数据模型
+| 字段名 | 类型 |
+|--------|------|
+| userId | BIGINT |
+| create_time | DATETIME |
+""")
+        tech = f.name
+    try:
+        r = run_audit(tech, "tech")
+        msgs = [i["message"] for i in r["mechanical_issues"] if i["check_id"] == "T-A14"]
+        assert any("userId" in m for m in msgs)
+        assert not any("create_time" in m for m in msgs)
+        print("✅ test_tech_top_level_field_naming")
+    finally:
+        os.unlink(tech)
+
+def test_test_top_level_case_id():
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', prefix='test-top-level-', delete=False) as f:
+        f.write("""# Test-顶层定义
+
+## §6 编码规则
+| 编码类型 | 前缀 |
+|---------|------|
+| 用例编号 | TC |
+""")
+        top = f.name
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        f.write("""# Test
+
+## §1 功能测试用例
+| 用例编号 | 名称 |
+|---------|------|
+| TC-001 | A |
+| CASE-001 | B |
+""")
+        test = f.name
+    try:
+        r = run_audit(test, "test", top_level_paths=[top])
+        msgs = [i["message"] for i in r["mechanical_issues"] if i["check_id"] == "S-B1"]
+        assert any("CASE-001" in m for m in msgs)
+        assert not any("TC-001" in m for m in msgs)
+        print("✅ test_test_top_level_case_id")
+    finally:
+        os.unlink(top); os.unlink(test)
+
+def test_prd_error_code_to_tech():
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        f.write("""# PRD
+
+## §7 错误处理
+| 错误码 | 触发场景 |
+|--------|---------|
+| ERR-001 | 网络错误 |
+| ERR-002 | 权限不足 |
+""")
+        prd = f.name
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        f.write("""# Tech
+
+## §7 异常处理
+| 错误码 | 场景 |
+|--------|------|
+| ERR-001 | 网络错误 |
+""")
+        tech = f.name
+    try:
+        r = run_audit(tech, "tech", upstream_paths=[prd])
+        msgs = [i["message"] for i in r["mechanical_issues"] if i["check_id"] == "T-B8"]
+        assert any("ERR-002" in m for m in msgs)
+        assert not any("ERR-001" in m for m in msgs)
+        print("✅ test_prd_error_code_to_tech")
+    finally:
+        os.unlink(prd); os.unlink(tech)
+
+def test_prd_entity_to_tech_table():
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        f.write("""# PRD
+
+## §5 数据模型
+| 实体 | 说明 |
+|------|------|
+| 用户 | 用户信息 |
+| 订单 | 订单信息 |
+""")
+        prd = f.name
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        f.write("""# Tech
+
+## §3 数据模型
+### 用户表
+| 字段名 | 类型 |
+|--------|------|
+| id | BIGINT |
+""")
+        tech = f.name
+    try:
+        r = run_audit(tech, "tech", upstream_paths=[prd])
+        msgs = [i["message"] for i in r["mechanical_issues"] if i["check_id"] == "T-B9"]
+        assert any("订单" in m for m in msgs)
+        assert not any("用户" in m for m in msgs)
+        print("✅ test_prd_entity_to_tech_table")
+    finally:
+        os.unlink(prd); os.unlink(tech)
+
+def test_tech_exception_to_test():
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        f.write("""# Tech
+
+## §7 异常处理
+| 异常编号 | 错误码 |
+|---------|--------|
+| EX-001 | ERR-001 |
+| EX-002 | ERR-002 |
+""")
+        tech = f.name
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        f.write("""# Test
+
+## §2 异常测试用例
+| 错误码 | 场景 |
+|--------|------|
+| ERR-001 | 网络错误 |
+""")
+        test = f.name
+    try:
+        r = run_audit(test, "test", upstream_paths=[tech])
+        msgs = [i["message"] for i in r["mechanical_issues"] if i["check_id"] == "S-B13"]
+        assert any("EX-002" in m for m in msgs)
+        assert any("ERR-002" in m for m in msgs)
+        assert not any("ERR-001" in m for m in msgs)
+        print("✅ test_tech_exception_to_test")
+    finally:
+        os.unlink(tech); os.unlink(test)
+
+def test_tech_interface_to_test():
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        f.write("""# Tech
+
+## §13 接口清单
+| 序号 | 接口名 | 方法 | 路径 |
+|------|--------|------|------|
+| 1 | 创建 | POST | /api/tickets |
+| 2 | 查询 | GET | /api/users |
+""")
+        tech = f.name
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        f.write("""# Test
+
+## §1 功能测试用例
+测试 POST /api/tickets
+""")
+        test = f.name
+    try:
+        r = run_audit(test, "test", upstream_paths=[tech])
+        msgs = [i["message"] for i in r["mechanical_issues"] if i["check_id"] == "S-B14"]
+        assert any("/api/users" in m for m in msgs)
+        assert not any("/api/tickets" in m for m in msgs)
+        print("✅ test_tech_interface_to_test")
+    finally:
+        os.unlink(tech); os.unlink(test)
+
+def test_error_code_count_match():
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        f.write("""# PRD
+
+## §7 错误处理
+| 错误码 | 触发场景 |
+|--------|---------|
+| ERR-001 | 网络错误 |
+| ERR-002 | 权限不足 |
+""")
+        prd = f.name
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        f.write("""# Tech
+
+## §7 异常处理
+| 错误码 | 场景 |
+|--------|------|
+| ERR-001 | 网络错误 |
+| ERR-002 | 权限不足 |
+""")
+        tech = f.name
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        f.write("""# Test
+
+## §2 异常测试用例
+| 错误码 | 场景 |
+|--------|------|
+| ERR-001 | 网络错误 |
+""")
+        test = f.name
+    try:
+        r = run_audit(prd, "prd", upstream_paths=[tech, test])
+        msgs = [i["message"] for i in r["mechanical_issues"] if i["check_id"] == "P-B8"]
+        assert any("2" in m and "1" in m for m in msgs)
+        print("✅ test_error_code_count_match")
+    finally:
+        os.unlink(prd); os.unlink(tech); os.unlink(test)
+
 if __name__ == "__main__":
     test_bidirectional_mapping()
     test_cross_doc_terminology()
@@ -265,4 +611,16 @@ if __name__ == "__main__":
     test_page_coverage()
     test_table_column_completeness()
     test_interface_test_coverage()
+    test_top_level_state_value()
+    test_top_level_error_code_format()
+    test_top_level_id_prefix()
+    test_top_level_enum()
+    test_ui_top_level_token()
+    test_tech_top_level_field_naming()
+    test_test_top_level_case_id()
+    test_prd_error_code_to_tech()
+    test_prd_entity_to_tech_table()
+    test_tech_exception_to_test()
+    test_tech_interface_to_test()
+    test_error_code_count_match()
     print("\n🎉 All tests passed!")

@@ -2802,7 +2802,12 @@ class TechTopLevelFieldNamingRule(Rule):
             return []
         # snake_case 是基础要求，不需要顶层定义也能检查
         extractor = MarkdownExtractor(data.raw_text)
-        fields = extractor.table_column_values(r"§3\s+数据模型", "字段")
+        fields = []
+        for col_name in ("字段", "字段名"):
+            vals = extractor.table_column_values(r"§3\s+数据模型", col_name)
+            if vals:
+                fields.extend(vals)
+                break
         issues = []
         for field in fields:
             if not re.match(r"^[a-z][a-z0-9_]*$", field):
@@ -3697,8 +3702,8 @@ def main():
     parser = argparse.ArgumentParser(description="产物一致性审计规则引擎")
     parser.add_argument("doc_path", help="待审计产物路径")
     parser.add_argument("--type", required=True, choices=list(RULE_SETS.keys()), help="产物类型")
-    parser.add_argument("--upstream", nargs="*", default=[], help="上游文档路径")
-    parser.add_argument("--top-level", nargs="*", default=[], help="顶层定义文件路径")
+    parser.add_argument("--upstream", action="append", default=[], help="上游文档路径（可多次指定）")
+    parser.add_argument("--top-level", action="append", default=[], help="顶层定义文件路径（可多次指定）")
     parser.add_argument("--scan-downstream", metavar="DIR", default="", help="扫描下游引用")
     args = parser.parse_args()
 
