@@ -1781,7 +1781,7 @@ class ExceptionInterfaceRefRule(Rule):
 
 
 class TechAuditFieldRule(Rule):
-    """技术方案: 检查数据模型中是否包含审计字段"""
+    """技术方案: 检查 §3 每张数据模型表是否包含审计字段"""
 
     def __init__(self, check_id: str, audit_fields: List[str]):
         self.check_id = check_id
@@ -1791,16 +1791,37 @@ class TechAuditFieldRule(Rule):
         if ctx.is_template:
             return []
         extractor = MarkdownExtractor(data.raw_text)
-        sec3_text = extractor.section_text(r"§3\s+数据模型")
-        if not sec3_text:
-            return []
+        tables = extractor.all_tables_after_heading(r"§3\s+数据模型")
         issues = []
-        if not any(field in sec3_text for field in self.audit_fields):
-            issues.append(Issue(
-                check_id=self.check_id, severity="warning",
-                location="§3 数据模型",
-                message="未检测到审计字段（如 created_at/updated_at/creator_id 等）"
-            ))
+        for idx, table in enumerate(tables, 1):
+            if not table or len(table) < 2:
+                continue
+            header = [c.strip() for c in table[0]]
+            if re.match(r"^:?-+:?$", header[0]):
+                continue
+            # 找到字段列
+            field_col = None
+            for i, h in enumerate(header):
+                if h in ("字段", "字段名"):
+                    field_col = i
+                    break
+            if field_col is None:
+                continue
+            # 提取该表所有字段名
+            fields = []
+            for row in table[1:]:
+                if len(row) > field_col:
+                    val = row[field_col].strip()
+                    if val and not re.match(r"^:?-+:?$", val):
+                        fields.append(val)
+            # 检查是否有审计字段
+            has_audit = any(any(audit in f for audit in self.audit_fields) for f in fields)
+            if not has_audit:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location=f"§3 数据模型表 #{idx}",
+                    message="未检测到审计字段（如 created_at/updated_at/creator_id 等）"
+                ))
         return issues
 
 
@@ -1924,6 +1945,227 @@ class TestCaseFormatRule(Rule):
         return issues
 
 
+# ── 第一批补充规则：表格列完整性 ──
+
+class DataModelTableColumnsRule(Rule):
+    """PRD: 检查 §5 数据模型表格是否包含必填列"""
+
+    def __init__(self, check_id: str, required_cols: List[str]):
+        self.check_id = check_id
+        self.required_cols = required_cols
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        tables = extractor.all_tables_after_heading(r"§5\s+数据模型")
+        issues = []
+        for idx, table in enumerate(tables, 1):
+            if not table or len(table) < 2:
+                continue
+            header = [c.strip() for c in table[0]]
+            if re.match(r"^:?-+:?$", header[0]):
+                continue
+            for col in self.required_cols:
+                if col not in header:
+                    issues.append(Issue(
+                        check_id=self.check_id, severity="blocking",
+                        location=f"§5 数据模型表 #{idx}",
+                        message=f"缺少必填列: {col}"
+                    ))
+        return issues
+
+
+class ErrorCodeTableColumnsRule(Rule):
+    """PRD: 检查 §7 错误码表格是否包含必填列"""
+
+    def __init__(self, check_id: str, required_cols: List[str]):
+        self.check_id = check_id
+        self.required_cols = required_cols
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        table = extractor.table_after_heading(r"§7\s+错误处理")
+        if not table or len(table) < 2:
+            return []
+        header = [c.strip() for c in table[0]]
+        issues = []
+        for col in self.required_cols:
+            if col not in header:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="blocking",
+                    location="§7 错误处理表头",
+                    message=f"缺少必填列: {col}"
+                ))
+        return issues
+
+
+class ExceptionTableColumnsRule(Rule):
+    """技术方案: 检查 §7 异常处理表格是否包含必填列"""
+
+    def __init__(self, check_id: str, required_cols: List[str]):
+        self.check_id = check_id
+        self.required_cols = required_cols
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        tables = extractor.all_tables_after_heading(r"§7\s+异常处理")
+        issues = []
+        for idx, table in enumerate(tables, 1):
+            if not table or len(table) < 2:
+                continue
+            header = [c.strip() for c in table[0]]
+            if re.match(r"^:?-+:?$", header[0]):
+                continue
+            for col in self.required_cols:
+                if col not in header:
+                    issues.append(Issue(
+                        check_id=self.check_id, severity="blocking",
+                        location=f"§7 异常处理表 #{idx}",
+                        message=f"缺少必填列: {col}"
+                    ))
+        return issues
+
+
+class InterfaceInventoryColumnsRule(Rule):
+    """技术方案: 检查 §13 接口清单表格是否包含必填列"""
+
+    def __init__(self, check_id: str, required_cols: List[str]):
+        self.check_id = check_id
+        self.required_cols = required_cols
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        table = extractor.table_after_heading(r"§13\s+接口清单")
+        if not table or len(table) < 2:
+            return [Issue(
+                check_id=self.check_id, severity="blocking",
+                location="§13 接口清单",
+                message="未找到接口清单表格"
+            )]
+        header = [c.strip() for c in table[0]]
+        issues = []
+        for col in self.required_cols:
+            if col not in header:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="blocking",
+                    location="§13 接口清单表头",
+                    message=f"缺少必填列: {col}"
+                ))
+        return issues
+
+
+class InterfaceFeatureRefRule(Rule):
+    """技术方案: 检查 §4 每个接口是否标注对应 PRD 功能点"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        sec4_text = extractor.section_text(r"§4\s+接口设计")
+        # 提取接口定义区块
+        api_blocks = re.findall(r"`(GET|POST|PUT|DELETE|PATCH)\s+(/[\w/{}:.\-]+)`([\s\S]*?)(?=```|$|`(?:GET|POST|PUT|DELETE|PATCH))", sec4_text)
+        issues = []
+        for method, path, block in api_blocks:
+            # 检查区块中是否包含功能编号格式的引用
+            if not re.search(r"\b[A-Za-z][A-Za-z0-9_]*(?:-[A-Za-z][A-Za-z0-9_]*)*-\d+\b", block):
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location=f"接口 {method} {path}",
+                    message="接口定义中未标注对应的功能点编号"
+                ))
+        return issues
+
+
+class PerfTestColumnsRule(Rule):
+    """测试: 检查 §3 性能测试表格是否包含必填列"""
+
+    def __init__(self, check_id: str, required_cols: List[str]):
+        self.check_id = check_id
+        self.required_cols = required_cols
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        tables = extractor.all_tables_after_heading(r"§3\s+性能测试")
+        issues = []
+        for idx, table in enumerate(tables, 1):
+            if not table or len(table) < 2:
+                continue
+            header = [c.strip() for c in table[0]]
+            if re.match(r"^:?-+:?$", header[0]):
+                continue
+            for col in self.required_cols:
+                if col not in header:
+                    issues.append(Issue(
+                        check_id=self.check_id, severity="blocking",
+                        location=f"§3 性能测试表 #{idx}",
+                        message=f"缺少必填列: {col}"
+                    ))
+        return issues
+
+
+class CoverageReportColumnsRule(Rule):
+    """测试: 检查 §6 覆盖检查报告表格是否包含必填列"""
+
+    def __init__(self, check_id: str, required_cols: List[str]):
+        self.check_id = check_id
+        self.required_cols = required_cols
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        table = extractor.table_after_heading(r"§6\s+覆盖检查报告")
+        if not table or len(table) < 2:
+            return []
+        header = [c.strip() for c in table[0]]
+        issues = []
+        for col in self.required_cols:
+            if col not in header:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="blocking",
+                    location="§6 覆盖检查报告表头",
+                    message=f"缺少必填列: {col}"
+                ))
+        return issues
+
+
+class AdmissionCriteriaRule(Rule):
+    """测试: 检查 §7 准入条件是否包含关键项"""
+
+    def __init__(self, check_id: str, required_items: List[str]):
+        self.check_id = check_id
+        self.required_items = required_items
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        sec7_text = extractor.section_text(r"§7\s+回归测试策略")
+        if not sec7_text:
+            return []
+        issues = []
+        for item in self.required_items:
+            if item not in sec7_text:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="§7 回归测试策略",
+                    message=f"准入条件缺少: {item}"
+                ))
+        return issues
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 4. 各产物类型的规则集
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1933,7 +2175,9 @@ PRD_RULES: List[Rule] = [
         "背景与目标", "用户与场景", "功能需求", "非功能需求",
         "数据模型", "业务规则", "错误处理", "验收标准", "依赖与范围", "附件",
     ]),
-    FeatureTableColumnsRule("P-A7", ["功能编号", "故事编号", "功能名称", "优先级", "交互方式"]),
+    FeatureTableColumnsRule("P-A7", ["功能编号", "故事编号", "功能名称", "优先级", "交互方式", "技术实现单元", "业务规则", "验收标准"]),
+    DataModelTableColumnsRule("P-A8", ["字段", "类型", "约束", "说明"]),
+    ErrorCodeTableColumnsRule("P-A9", ["错误码", "触发场景", "前端提示"]),
     IdFormatConsistencyRule("P-A5"),
     IdDuplicateRule("P-A6"),
     IdContinuityRule("P-A6"),
@@ -1990,8 +2234,11 @@ TECH_RULES: List[Rule] = [
         "监控与日志", "灰度与回滚", "接口清单", "风险评估",
     ]),
     TechAuditFieldRule("T-A2", ["created_at", "updated_at", "creator_id", "updater_id", "created_by", "updated_by"]),
-    TechInterfaceElementsRule("T-A4", ["URL", "方法", "请求参数", "响应结构", "错误码"]),
-    TableColumnCompletenessRule("T-A3", ["字段名", "类型", "约束", "索引"]),
+    TechInterfaceElementsRule("T-A4", ["URL", "方法", "请求参数", "响应结构", "错误码", "版本号"]),
+    TableColumnCompletenessRule("T-A3", ["字段", "类型", "约束", "索引", "对应 PRD 字段", "设计说明"]),
+    InterfaceFeatureRefRule("T-A5"),
+    ExceptionTableColumnsRule("T-A6", ["异常编号", "异常类型", "场景", "触发条件", "技术处理", "用户提示", "错误码"]),
+    InterfaceInventoryColumnsRule("T-A7", ["序号", "接口名", "方法", "路径", "对应功能点", "权限", "版本"]),
     InterfaceInventoryMatchRule("T-A9"),
     TableFieldInterfaceRefRule("T-A10"),
     ExceptionInterfaceRefRule("T-A11"),
@@ -2012,6 +2259,9 @@ TEST_RULES: List[Rule] = [
     TestExceptionCoverageRule("S-A4", [
         "参数非法", "权限不足", "数据不存在", "网络异常", "并发冲突", "第三方故障",
     ]),
+    PerfTestColumnsRule("S-A5", ["测试项", "性能目标", "测试场景", "测试数据量", "通过标准", "优先级"]),
+    CoverageReportColumnsRule("S-A6", ["验收标准编号", "验收标准描述", "覆盖用例编号", "状态", "未覆盖原因"]),
+    AdmissionCriteriaRule("S-A7", ["代码审查", "单元测试", "构建成功"]),
     InterfaceTestCoverageRule("S-B5"),
     TableFormatRule("S-A11"),
     UpstreamRefRule("S-B9"),
