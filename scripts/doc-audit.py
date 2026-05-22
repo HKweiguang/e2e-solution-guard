@@ -1143,6 +1143,222 @@ class PageStructureRule(Rule):
         return issues
 
 
+class IdFormatConsistencyRule(Rule):
+    """PRD: 检查 §3 功能编号的前缀是否一致（统一模块/角色前缀）"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        sec3_table = extractor.table_after_heading(r"§3\s+功能需求")
+        if not sec3_table or len(sec3_table) < 2:
+            return []
+
+        prefixes: Set[str] = set()
+        for row in sec3_table[1:]:
+            if not row or re.match(r"^:?-+:?$", row[0]):
+                continue
+            fid = row[0].strip()
+            m = re.match(r"(.+)-\d+$", fid)
+            if m:
+                prefixes.add(m.group(1))
+
+        if len(prefixes) > 1:
+            return [Issue(
+                check_id=self.check_id,
+                severity="warning",
+                location="§3 功能编号",
+                message=f"功能编号前缀不一致，发现 {len(prefixes)} 种前缀: {', '.join(sorted(prefixes))}"
+            )]
+        return []
+
+
+class PagePrefixConsistencyRule(Rule):
+    """交互设计: 检查页面编号前缀是否一致"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+
+        # 从一级章节标题中提取页面编号
+        page_ids: List[str] = []
+        for n in extractor.nodes:
+            if n["type"] == "heading" and n["level"] == 1:
+                m = re.search(r"\b([A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+)\b", n["text"])
+                if m:
+                    page_ids.append(m.group(1))
+
+        if not page_ids:
+            return []
+
+        prefixes: Set[str] = set()
+        for pid in page_ids:
+            first_part = pid.split("-")[0]
+            prefixes.add(first_part)
+
+        if len(prefixes) > 1:
+            return [Issue(
+                check_id=self.check_id,
+                severity="warning",
+                location="页面编号",
+                message=f"页面编号前缀不一致，发现 {len(prefixes)} 种前缀: {', '.join(sorted(prefixes))}"
+            )]
+        return []
+
+
+class PageCoverageRule(Rule):
+    """UI: 检查 HTML 的 section id 是否覆盖上游交互设计的页面编号"""
+
+    def __init__(self, check_id: str, upstream_file_hint: str = "interaction"):
+        self.check_id = check_id
+        self.upstream_file_hint = upstream_file_hint
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+
+        upstream_data = self._find_upstream(ctx)
+        if not upstream_data:
+            return []
+
+        # 从交互设计提取页面编号
+        upstream_ids: Set[str] = set()
+        for n in upstream_data.sections:
+            level, title = n
+            if level == 1:
+                m = re.search(r"\b(PAGE-[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+)\b", title)
+                if m:
+                    upstream_ids.add(m.group(1))
+
+        if not upstream_ids:
+            return []
+
+        # 从 HTML 提取 section id
+        html_ids = set(re.findall(r'<section[^>]*id=["\']([^"\']+)["\']', data.raw_text))
+
+        issues = []
+        missing = upstream_ids - html_ids
+        for pid in sorted(missing):
+            issues.append(Issue(
+                check_id=self.check_id,
+                severity="warning",
+                location="页面覆盖度",
+                message=f"交互设计页面 {pid} 在 UI HTML 中无对应 section id"
+            ))
+        return issues
+
+    def _find_upstream(self, ctx: AuditContext) -> Optional[ExtractedData]:
+        for path, up_data in ctx.upstream_docs.items():
+            if self.upstream_file_hint.lower() in path.lower():
+                return up_data
+        return None
+
+
+class TableColumnCompletenessRule(Rule):
+    """技术方案: 检查 §3 数据模型表格是否包含必填列"""
+
+    def __init__(self, check_id: str, required_cols: List[str]):
+        self.check_id = check_id
+        self.required_cols = required_cols
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        tables = extractor.all_tables_after_heading(r"§3\s+数据模型")
+        issues = []
+        for table in tables:
+            if not table or len(table) < 2:
+                continue
+            header = [c.strip() for c in table[0]]
+            if re.match(r"^:?-+:?$", header[0]):
+                continue
+            for col in self.required_cols:
+                if col not in header:
+                    issues.append(Issue(
+                        check_id=self.check_id,
+                        severity="blocking",
+                        location="数据模型表头",
+                        message=f"表格缺少必填列: {col}"
+                    ))
+        return issues
+
+
+class InterfaceTestCoverageRule(Rule):
+    """测试方案: 检查技术方案的接口是否在测试用例中有覆盖"""
+
+    def __init__(self, check_id: str, upstream_file_hint: str = "tech"):
+        self.check_id = check_id
+        self.upstream_file_hint = upstream_file_hint
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+
+        upstream_data = self._find_upstream(ctx)
+        if not upstream_data:
+            return []
+
+        # 从 Tech §13 提取接口列表
+        tech_extractor = MarkdownExtractor(upstream_data.raw_text)
+        table = tech_extractor.table_after_heading(r"§13\s+接口清单")
+        tech_interfaces: Set[Tuple[str, str]] = set()
+        if table and len(table) >= 2:
+            header = [c.strip() for c in table[0]]
+            method_idx = self._idx(header, ["方法", "HTTP 方法"])
+            path_idx = self._idx(header, ["路径", "URL", "接口路径"])
+            if method_idx is not None and path_idx is not None:
+                for row in table[1:]:
+                    if len(row) <= max(method_idx, path_idx):
+                        continue
+                    if re.match(r"^:?-+:?$", row[0]):
+                        continue
+                    method = row[method_idx].strip().strip("`\"'")
+                    path = row[path_idx].strip().strip("`\"'")
+                    if path:
+                        tech_interfaces.add((method, path))
+
+        if not tech_interfaces:
+            return []
+
+        # 从测试文档全文中搜索接口引用
+        test_text = data.raw_text
+        issues = []
+        for method, path in sorted(tech_interfaces):
+            # 搜索方法（单词边界）和路径（空白边界）
+            found = False
+            if re.search(r"\b" + re.escape(method) + r"\b", test_text) and re.search(r"(?<!\S)" + re.escape(path) + r"(?!\S)", test_text):
+                found = True
+            if not found:
+                issues.append(Issue(
+                    check_id=self.check_id,
+                    severity="warning",
+                    location="接口测试覆盖",
+                    message=f"技术方案接口 {method} {path} 在测试用例中未找到覆盖"
+                ))
+        return issues
+
+    def _find_upstream(self, ctx: AuditContext) -> Optional[ExtractedData]:
+        for path, up_data in ctx.upstream_docs.items():
+            if self.upstream_file_hint.lower() in path.lower():
+                return up_data
+        return None
+
+    @staticmethod
+    def _idx(header: List[str], candidates: List[str]) -> Optional[int]:
+        for c in candidates:
+            if c in header:
+                return header.index(c)
+        return None
+
+
 class SVGExistRule(Rule):
     """交互设计: 检查每个页面是否包含 SVG 线框图"""
 
@@ -1718,6 +1934,7 @@ PRD_RULES: List[Rule] = [
         "数据模型", "业务规则", "错误处理", "验收标准", "依赖与范围", "附件",
     ]),
     FeatureTableColumnsRule("P-A7", ["功能编号", "故事编号", "功能名称", "优先级", "交互方式"]),
+    IdFormatConsistencyRule("P-A5"),
     IdDuplicateRule("P-A6"),
     IdContinuityRule("P-A6"),
     ReverseFeatureRefRule("P-A8", r"§6\s+业务规则", "§6 业务规则"),
@@ -1740,6 +1957,7 @@ INTERACTION_RULES: List[Rule] = [
     StateMatrixRule("I-A6", expected_cols=7, col_name="力学约束"),
     PageFlowColumnsRule("I-A8", ["前置条件", "用户操作", "系统响应", "反馈方式", "后置状态"]),
     ExceptionColumnsRule("I-A9", ["异常场景", "触发条件", "系统响应", "用户感知", "恢复路径"]),
+    PagePrefixConsistencyRule("I-B1"),
     TableFormatRule("I-A12"),
     UpstreamRefRule("I-B5"),
 ]
@@ -1759,6 +1977,7 @@ UI_RULES: List[Rule] = [
     UIStateMapRule("U-A7"),
     UIClassConsistencyRule("U-A8"),
     StateStyleExistRule("U-B3", ["hover", "active", "focus", "disabled", "loading", "empty", "error", "success", "skeleton"]),
+    PageCoverageRule("U-B1"),
     ResponsiveBreakpointRule("U-B5"),
     TableFormatRule("U-A12"),
     UpstreamRefRule("U-B6"),
@@ -1772,6 +1991,7 @@ TECH_RULES: List[Rule] = [
     ]),
     TechAuditFieldRule("T-A2", ["created_at", "updated_at", "creator_id", "updater_id", "created_by", "updated_by"]),
     TechInterfaceElementsRule("T-A4", ["URL", "方法", "请求参数", "响应结构", "错误码"]),
+    TableColumnCompletenessRule("T-A3", ["字段名", "类型", "约束", "索引"]),
     InterfaceInventoryMatchRule("T-A9"),
     TableFieldInterfaceRefRule("T-A10"),
     ExceptionInterfaceRefRule("T-A11"),
@@ -1792,6 +2012,7 @@ TEST_RULES: List[Rule] = [
     TestExceptionCoverageRule("S-A4", [
         "参数非法", "权限不足", "数据不存在", "网络异常", "并发冲突", "第三方故障",
     ]),
+    InterfaceTestCoverageRule("S-B5"),
     TableFormatRule("S-A11"),
     UpstreamRefRule("S-B9"),
 ]
