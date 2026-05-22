@@ -1805,15 +1805,51 @@ class ExceptionInterfaceRefRule(Rule):
 
 
 class TechAuditFieldRule(Rule):
-    """技术方案: 检查 §3 每张数据模型表是否包含审计字段"""
+    """技术方案: 检查 §3 每张数据模型表是否包含审计字段。
+    优先从技术-顶层定义 §4.2 读取审计字段清单，无顶层定义时使用默认列表。"""
 
-    def __init__(self, check_id: str, audit_fields: List[str]):
+    DEFAULT_AUDIT_FIELDS = ["created_at", "updated_at", "creator_id", "updater_id", "created_by", "updated_by"]
+
+    def __init__(self, check_id: str):
         self.check_id = check_id
-        self.audit_fields = audit_fields
+
+    def _load_audit_fields(self, ctx: AuditContext) -> List[str]:
+        """从技术-顶层定义提取审计字段清单。扫描含'审计字段'或'字段名'列的表格。"""
+        if not ctx.top_level_docs:
+            return self.DEFAULT_AUDIT_FIELDS
+        for tl_data in ctx.top_level_docs.values():
+            # 优先查找明确标注为审计字段的表格
+            for table in tl_data.tables:
+                if not table or len(table) < 2:
+                    continue
+                header = [c.strip() for c in table[0]]
+                if "审计字段" in header:
+                    col_idx = header.index("审计字段")
+                    fields = []
+                    for row in table[1:]:
+                        if len(row) > col_idx:
+                            val = row[col_idx].strip()
+                            if val and not re.match(r"^:?-+:?$", val):
+                                fields.append(val)
+                    if fields:
+                        return fields
+                # 也尝试"字段名"列，但表格标题或上下文中出现"审计"
+                if "字段名" in header:
+                    col_idx = header.index("字段名")
+                    fields = []
+                    for row in table[1:]:
+                        if len(row) > col_idx:
+                            val = row[col_idx].strip()
+                            if val and not re.match(r"^:?-+:?$", val):
+                                fields.append(val)
+                    if fields:
+                        return fields
+        return self.DEFAULT_AUDIT_FIELDS
 
     def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
         if ctx.is_template:
             return []
+        audit_fields = self._load_audit_fields(ctx)
         extractor = MarkdownExtractor(data.raw_text)
         tables = extractor.all_tables_after_heading(r"§3\s+数据模型")
         issues = []
@@ -1823,7 +1859,6 @@ class TechAuditFieldRule(Rule):
             header = [c.strip() for c in table[0]]
             if re.match(r"^:?-+:?$", header[0]):
                 continue
-            # 找到字段列
             field_col = None
             for i, h in enumerate(header):
                 if h in ("字段", "字段名"):
@@ -1831,20 +1866,18 @@ class TechAuditFieldRule(Rule):
                     break
             if field_col is None:
                 continue
-            # 提取该表所有字段名
             fields = []
             for row in table[1:]:
                 if len(row) > field_col:
                     val = row[field_col].strip()
                     if val and not re.match(r"^:?-+:?$", val):
                         fields.append(val)
-            # 检查是否有审计字段
-            has_audit = any(any(audit in f for audit in self.audit_fields) for f in fields)
+            has_audit = any(any(audit in f for audit in audit_fields) for f in fields)
             if not has_audit:
                 issues.append(Issue(
                     check_id=self.check_id, severity="warning",
                     location=f"§3 数据模型表 #{idx}",
-                    message="未检测到审计字段（如 created_at/updated_at/creator_id 等）"
+                    message=f"未检测到审计字段（期望至少包含以下之一: {', '.join(audit_fields)}）"
                 ))
         return issues
 
@@ -3461,7 +3494,7 @@ TECH_RULES: List[Rule] = [
         "核心流程", "异常处理", "性能与扩展性", "高可用设计", "安全设计",
         "监控与日志", "灰度与回滚", "接口清单", "风险评估",
     ]),
-    TechAuditFieldRule("T-A2", ["created_at", "updated_at", "creator_id", "updater_id", "created_by", "updated_by"]),
+    TechAuditFieldRule("T-A2"),
     TechInterfaceElementsRule("T-A4", ["URL", "方法", "请求参数", "响应结构", "错误码", "版本号"]),
     TableColumnCompletenessRule("T-A3", ["字段", "类型", "约束", "索引", "对应 PRD 字段", "设计说明"]),
     InterfaceFeatureRefRule("T-A5"),
