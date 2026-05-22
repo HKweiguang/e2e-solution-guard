@@ -2336,6 +2336,239 @@ class EnumConsistencyRule(Rule):
         return enums
 
 
+# ── 第三批补充规则：Tech/Test 跨产物 + Interaction 单产物 ──
+
+class TechFieldToApiRefRule(Rule):
+    """技术方案: 检查 §3 数据模型字段在 §4 接口请求/响应参数中有对应"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        # 从 §3 提取所有字段名
+        tables = extractor.all_tables_after_heading(r"§3\s+数据模型")
+        fields: Set[str] = set()
+        for table in tables:
+            if not table or len(table) < 2:
+                continue
+            header = [c.strip() for c in table[0]]
+            if "字段" in header:
+                col_idx = header.index("字段")
+                for row in table[1:]:
+                    if len(row) > col_idx:
+                        val = row[col_idx].strip()
+                        if val and not re.match(r"^:?-+:?$", val):
+                            fields.add(val)
+
+        # 从 §4 提取所有参数名（在反引号中或表格中）
+        sec4_text = extractor.section_text(r"§4\s+接口设计")
+        api_params = set(re.findall(r"`([a-zA-Z_][a-zA-Z0-9_]*)`", sec4_text))
+        # 也提取表格中的字段名
+        for table in extractor.all_tables_after_heading(r"§4\s+接口设计"):
+            if table and table[0]:
+                header = [c.strip() for c in table[0]]
+                if "参数名" in header or "字段" in header:
+                    col_idx = header.index("参数名") if "参数名" in header else header.index("字段")
+                    for row in table[1:]:
+                        if len(row) > col_idx:
+                            val = row[col_idx].strip()
+                            if val and not re.match(r"^:?-+:?$", val):
+                                api_params.add(val)
+
+        issues = []
+        missing = fields - api_params
+        if missing:
+            issues.append(Issue(
+                check_id=self.check_id, severity="warning",
+                location="§4 接口设计",
+                message=f"以下数据模型字段在接口参数中未找到对应: {', '.join(sorted(missing)[:10])}"
+            ))
+        return issues
+
+
+class TestCoverageVerificationRule(Rule):
+    """测试: 检查 §6 中标记为'已覆盖'的验收标准在 §1/§2 中有对应用例"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        # 从 §6 提取已覆盖的验收标准编号
+        sec6_table = extractor.table_after_heading(r"§6\s+覆盖检查报告")
+        covered_ac: Set[str] = set()
+        if sec6_table and len(sec6_table) > 1:
+            header = [c.strip() for c in sec6_table[0]]
+            ac_col = header.index("验收标准编号") if "验收标准编号" in header else 0
+            status_col = header.index("状态") if "状态" in header else -1
+            for row in sec6_table[1:]:
+                if len(row) > max(ac_col, status_col):
+                    status = row[status_col].strip() if status_col >= 0 else ""
+                    if "已覆盖" in status:
+                        covered_ac.add(row[ac_col].strip())
+
+        # 从 §1/§2 文本中提取所有引用的验收标准编号
+        all_cases_text = extractor.section_text(r"§1\s+功能测试用例") + "\n" + extractor.section_text(r"§2\s+异常测试用例")
+        issues = []
+        for ac_id in covered_ac:
+            if ac_id not in all_cases_text:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="blocking",
+                    location="§6 覆盖检查报告",
+                    message=f"验收标准 {ac_id} 标记为已覆盖，但在 §1/§2 中未找到对应用例"
+                ))
+        return issues
+
+
+class TestExceptionCompletenessRule(Rule):
+    """测试: 检查 §2 异常场景是否覆盖上游技术方案 §7 所有异常"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.upstream_docs:
+            return []
+        # 从当前测试 §2 提取异常场景/错误码
+        extractor = MarkdownExtractor(data.raw_text)
+        test_sec2_text = extractor.section_text(r"§2\s+异常测试用例")
+        test_exceptions = set(re.findall(r"ERR-[A-Z]+-\d+", test_sec2_text))
+
+        # 从上游 Tech §7 提取异常/错误码
+        tech_exceptions: Set[str] = set()
+        for up_data in ctx.upstream_docs.values():
+            tech_text = MarkdownExtractor(up_data.raw_text).section_text(r"§7\s+异常处理")
+            tech_exceptions.update(re.findall(r"ERR-[A-Z]+-\d+", tech_text))
+
+        issues = []
+        missing = tech_exceptions - test_exceptions
+        if missing:
+            issues.append(Issue(
+                check_id=self.check_id, severity="warning",
+                location="§2 异常测试用例",
+                message=f"以下技术方案中的异常/错误码未在测试 §2 中覆盖: {', '.join(sorted(missing))}"
+            ))
+        return issues
+
+
+class TestSecurityCompletenessRule(Rule):
+    """测试: 检查 §4 安全测试是否覆盖上游技术方案 §10 所有安全措施"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.upstream_docs:
+            return []
+        # 从当前测试 §4 提取安全测试项
+        extractor = MarkdownExtractor(data.raw_text)
+        test_sec4_text = extractor.section_text(r"§4\s+安全测试")
+        # 简单提取表格第一列作为测试项
+        test_items: Set[str] = set()
+        for table in extractor.all_tables_after_heading(r"§4\s+安全测试"):
+            if table and len(table) > 1:
+                for row in table[1:]:
+                    if row and row[0].strip():
+                        test_items.add(row[0].strip())
+
+        # 从上游 Tech §10 提取安全措施
+        tech_items: Set[str] = set()
+        for up_data in ctx.upstream_docs.values():
+            tech_text = MarkdownExtractor(up_data.raw_text).section_text(r"§10\s+安全设计")
+            for table in MarkdownExtractor(up_data.raw_text).all_tables_after_heading(r"§10\s+安全设计"):
+                if table and len(table) > 1:
+                    for row in table[1:]:
+                        if row and row[0].strip():
+                            tech_items.add(row[0].strip())
+
+        issues = []
+        missing = tech_items - test_items
+        if missing:
+            issues.append(Issue(
+                check_id=self.check_id, severity="warning",
+                location="§4 安全测试",
+                message=f"以下技术方案安全措施未在安全测试中覆盖: {', '.join(sorted(missing)[:10])}"
+            ))
+        return issues
+
+
+class InteractionJumpTargetRule(Rule):
+    """交互设计: 检查页面跳转目标是否在本产物范围内或正确引用外部"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        # 提取本文档中所有页面编号
+        local_pages = set()
+        for level, text in data.sections:
+            m = re.search(r"[A-Z]+(?:-[A-Z]+)*-\d+", text)
+            if m:
+                local_pages.add(m.group(0))
+
+        # 从全文提取跳转目标引用
+        jump_patterns = [
+            r"跳转到\s*([^\s，。]+)",
+            r"返回\s*([^\s，。]+)",
+            r"进入\s*([^\s，。]+)",
+            r"href\s*=\s*['\"]([^'\"]+)['\"]",
+        ]
+        issues = []
+        for pattern in jump_patterns:
+            for target in re.findall(pattern, data.raw_text):
+                target = target.strip()
+                # 如果目标是页面编号格式，检查是否在本地
+                if re.match(r"[A-Z]+(?:-[A-Z]+)*-\d+", target) and target not in local_pages:
+                    issues.append(Issue(
+                        check_id=self.check_id, severity="warning",
+                        location="页面跳转",
+                        message=f"跳转目标 '{target}' 不在本产物页面列表中，请确认是否为外部引用"
+                    ))
+        return issues
+
+
+class TechPerformanceAlignmentRule(Rule):
+    """技术方案: 检查 §8 性能目标是否与上游 PRD §4 非功能需求一致"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.upstream_docs:
+            return []
+        # 从上游 PRD §4 提取性能指标关键词
+        prd_metrics: Set[str] = set()
+        for up_data in ctx.upstream_docs.values():
+            prd_text = MarkdownExtractor(up_data.raw_text).section_text(r"§4\s+非功能需求")
+            # 提取包含数字的绩效指标行
+            for line in prd_text.splitlines():
+                if re.search(r"\d+\s*(ms|s|秒|QPS|TPS|RPS|并发)", line):
+                    # 取前 20 字符作为指标标识
+                    prd_metrics.add(line.strip()[:30])
+
+        # 从当前 Tech §8 提取性能目标
+        extractor = MarkdownExtractor(data.raw_text)
+        tech_text = extractor.section_text(r"§8\s+性能与扩展性")
+        issues = []
+        for metric in prd_metrics:
+            # 简化匹配：检查 PRD 指标关键词是否在 Tech §8 中出现
+            keyword = re.sub(r"\d+\s*(ms|s|秒|QPS|TPS|RPS|并发).*", r"\1", metric)
+            if keyword and keyword not in tech_text:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="§8 性能与扩展性",
+                    message=f"PRD §4 中的性能指标未在技术方案 §8 中找到对应目标"
+                ))
+        return issues
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 4. 各产物类型的规则集
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2376,6 +2609,7 @@ INTERACTION_RULES: List[Rule] = [
     PagePrefixConsistencyRule("I-B1"),
     UpstreamIdExistenceRule("I-B2", r"[A-Z]+(?:-[A-Z]+)*-\d+", "页面编号"),
     VersionConsistencyRule("I-B3"),
+    InteractionJumpTargetRule("I-B4"),
     TableFormatRule("I-A12"),
     UpstreamRefRule("I-B6"),
 ]
@@ -2425,6 +2659,8 @@ TECH_RULES: List[Rule] = [
     EnumConsistencyRule("T-B3"),
     UpstreamIdExistenceRule("T-B4", r"ERR-[A-Z]+-\d+", "错误码"),
     VersionConsistencyRule("T-B5"),
+    TechFieldToApiRefRule("T-B6"),
+    TechPerformanceAlignmentRule("T-B7"),
     UpstreamRefRule("T-B13"),
 ]
 
@@ -2444,6 +2680,9 @@ TEST_RULES: List[Rule] = [
     InterfaceTestCoverageRule("S-B5"),
     UpstreamIdExistenceRule("S-B6", r"[A-Z]+(?:-[A-Z]+)*-\d+", "功能点/用例编号"),
     VersionConsistencyRule("S-B7"),
+    TestCoverageVerificationRule("S-A8"),
+    TestExceptionCompletenessRule("S-A9"),
+    TestSecurityCompletenessRule("S-A10"),
     TableFormatRule("S-A11"),
     UpstreamRefRule("S-B10"),
 ]
