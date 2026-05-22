@@ -2166,6 +2166,176 @@ class AdmissionCriteriaRule(Rule):
         return issues
 
 
+# ── 第二批补充规则：L2 相邻产物间 ──
+
+class PRDCoverageConsistencyRule(Rule):
+    """PRD: 检查 §1 声明的覆盖功能点列表与 §3 实际功能点是否一致"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        # 从 §1 文档信息中提取"覆盖功能点"列表
+        # 匹配格式: **覆盖功能点**：TICKET-001, TICKET-002
+        sec1_text = MarkdownExtractor(data.raw_text).section_text(r"§1\s+文档信息")
+        coverage_match = re.search(r"覆盖功能点[：:]\s*([A-Za-z0-9_\-,\s]+)", sec1_text)
+        if not coverage_match:
+            return []
+        covered_ids = set(re.findall(r"[A-Za-z][A-Za-z0-9_]*(?:-[A-Za-z][A-Za-z0-9_]*)*-\d+", coverage_match.group(1)))
+
+        # 从 §3 表格第一列提取实际功能点
+        extractor = MarkdownExtractor(data.raw_text)
+        sec3_table = extractor.table_after_heading(r"§3\s+功能需求")
+        actual_ids = set()
+        if sec3_table and len(sec3_table) > 1:
+            for row in sec3_table[1:]:
+                if row and not re.match(r"^:?-+:?$", row[0]):
+                    actual_ids.add(row[0].strip())
+
+        issues = []
+        missing = covered_ids - actual_ids
+        extra = actual_ids - covered_ids
+        if missing:
+            issues.append(Issue(
+                check_id=self.check_id, severity="warning",
+                location="§1 覆盖功能点",
+                message=f"§1 声明但未在 §3 中找到的功能点: {', '.join(sorted(missing))}"
+            ))
+        if extra:
+            issues.append(Issue(
+                check_id=self.check_id, severity="warning",
+                location="§3 功能需求",
+                message=f"§3 存在但 §1 未声明的功能点: {', '.join(sorted(extra))}"
+            ))
+        return issues
+
+
+class VersionConsistencyRule(Rule):
+    """通用: 检查当前产物版本号与上游文档版本号是否一致"""
+
+    def __init__(self, check_id: str, upstream_type: str = "upstream"):
+        self.check_id = check_id
+        self.upstream_type = upstream_type
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.upstream_docs:
+            return []
+        # 提取当前产物版本号
+        current_version = self._extract_version(data.raw_text)
+        if not current_version:
+            return []
+        issues = []
+        for path, up_data in ctx.upstream_docs.items():
+            upstream_version = self._extract_version(up_data.raw_text)
+            if upstream_version and upstream_version != current_version:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="版本号",
+                    message=f"版本号不一致: 当前 {current_version}, 上游 {Path(path).name} 为 {upstream_version}"
+                ))
+        return issues
+
+    @staticmethod
+    def _extract_version(text: str) -> Optional[str]:
+        m = re.search(r"版本号[：:]\s*(v?\d+\.\d+(?:\.\d+)?)", text)
+        if m:
+            return m.group(1)
+        # 回退：从标题中提取 v{数字}
+        m = re.search(r"-v(\d+\.\d+)", text)
+        return f"v{m.group(1)}" if m else None
+
+
+class UpstreamIdExistenceRule(Rule):
+    """通用: 检查当前产物引用的 ID 在上游文档中是否存在"""
+
+    def __init__(self, check_id: str, id_pattern: str, location_desc: str):
+        self.check_id = check_id
+        self.id_pattern = id_pattern
+        self.location_desc = location_desc
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.upstream_docs:
+            return []
+        # 收集当前产物中的引用 ID
+        current_ids = set(re.findall(self.id_pattern, data.raw_text))
+        if not current_ids:
+            return []
+        # 收集所有上游文档中的 ID
+        upstream_ids: Set[str] = set()
+        for up_data in ctx.upstream_docs.values():
+            upstream_ids.update(up_data.ids)
+            # 也尝试从 raw_text 中提取
+            upstream_ids.update(re.findall(self.id_pattern, up_data.raw_text))
+
+        issues = []
+        missing = current_ids - upstream_ids
+        if missing:
+            issues.append(Issue(
+                check_id=self.check_id, severity="warning",
+                location=self.location_desc,
+                message=f"以下 ID 在上游文档中未找到: {', '.join(sorted(missing))}"
+            ))
+        return issues
+
+
+class EnumConsistencyRule(Rule):
+    """技术方案: 检查 §3 枚举值与上游 PRD §5/§6 是否一致"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.upstream_docs:
+            return []
+        # 从技术方案 §3 提取枚举值（通常出现在"取值"或"枚举"描述中）
+        extractor = MarkdownExtractor(data.raw_text)
+        sec3_text = extractor.section_text(r"§3\s+数据模型")
+        tech_enums = self._extract_enums(sec3_text)
+
+        # 从上游 PRD 提取枚举值
+        prd_enums: Dict[str, Set[str]] = {}
+        for up_data in ctx.upstream_docs.values():
+            prd_text = MarkdownExtractor(up_data.raw_text).section_text(r"§5\s+数据模型")
+            if not prd_text:
+                prd_text = MarkdownExtractor(up_data.raw_text).section_text(r"§6\s+业务规则")
+            if prd_text:
+                prd_enums.update(self._extract_enums(prd_text))
+
+        issues = []
+        for field, tech_vals in tech_enums.items():
+            if field in prd_enums:
+                missing = tech_vals - prd_enums[field]
+                extra = prd_enums[field] - tech_vals
+                if missing or extra:
+                    issues.append(Issue(
+                        check_id=self.check_id, severity="warning",
+                        location=f"枚举值 {field}",
+                        message=f"枚举值不一致: 技术方案={sorted(tech_vals)}, PRD={sorted(prd_enums[field])}"
+                    ))
+        return issues
+
+    @staticmethod
+    def _extract_enums(text: str) -> Dict[str, Set[str]]:
+        """从文本中提取枚举值定义。格式如：取值：A / B / C"""
+        enums: Dict[str, Set[str]] = {}
+        # 匹配"取值：VALUE1 / VALUE2 / VALUE3"或"枚举：A, B, C"
+        for m in re.finditer(r"(?:取值|枚举)[：:]\s*([^\n]+)", text):
+            vals = set(v.strip() for v in re.split(r"[,，/、]", m.group(1)) if v.strip())
+            # 尝试找到前面的字段名（简单回退：取最近一行的字段名）
+            field = "unknown"
+            lines_before = text[:m.start()].splitlines()
+            for line in reversed(lines_before):
+                cm = re.search(r"\|\s*([^|]+)\s*\|", line)
+                if cm:
+                    field = cm.group(1).strip()
+                    break
+            if vals:
+                enums[field] = vals
+        return enums
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 4. 各产物类型的规则集
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2189,7 +2359,9 @@ PRD_RULES: List[Rule] = [
     TableFormatRule("P-A15"),
     BrokenInternalLinkRule("P-A16"),
     CrossDocTerminologyRule("P-B2"),
-    UpstreamRefRule("P-B4"),
+    PRDCoverageConsistencyRule("P-B3"),
+    VersionConsistencyRule("P-B4"),
+    UpstreamRefRule("P-B5"),
 ]
 
 INTERACTION_RULES: List[Rule] = [
@@ -2202,8 +2374,10 @@ INTERACTION_RULES: List[Rule] = [
     PageFlowColumnsRule("I-A8", ["前置条件", "用户操作", "系统响应", "反馈方式", "后置状态"]),
     ExceptionColumnsRule("I-A9", ["异常场景", "触发条件", "系统响应", "用户感知", "恢复路径"]),
     PagePrefixConsistencyRule("I-B1"),
+    UpstreamIdExistenceRule("I-B2", r"[A-Z]+(?:-[A-Z]+)*-\d+", "页面编号"),
+    VersionConsistencyRule("I-B3"),
     TableFormatRule("I-A12"),
-    UpstreamRefRule("I-B5"),
+    UpstreamRefRule("I-B6"),
 ]
 
 UI_RULES: List[Rule] = [
@@ -2222,9 +2396,11 @@ UI_RULES: List[Rule] = [
     UIClassConsistencyRule("U-A8"),
     StateStyleExistRule("U-B3", ["hover", "active", "focus", "disabled", "loading", "empty", "error", "success", "skeleton"]),
     PageCoverageRule("U-B1"),
+    UpstreamIdExistenceRule("U-B2", r"page-[a-z0-9-]+", "section id"),
+    VersionConsistencyRule("U-B3"),
     ResponsiveBreakpointRule("U-B5"),
     TableFormatRule("U-A12"),
-    UpstreamRefRule("U-B6"),
+    UpstreamRefRule("U-B7"),
 ]
 
 TECH_RULES: List[Rule] = [
@@ -2246,7 +2422,10 @@ TECH_RULES: List[Rule] = [
     BrokenInternalLinkRule("T-A13"),
     BidirectionalMappingRule("T-B1", forward_severity="warning", reverse_severity="warning"),
     CrossDocTerminologyRule("T-B2"),
-    UpstreamRefRule("T-B12"),
+    EnumConsistencyRule("T-B3"),
+    UpstreamIdExistenceRule("T-B4", r"ERR-[A-Z]+-\d+", "错误码"),
+    VersionConsistencyRule("T-B5"),
+    UpstreamRefRule("T-B13"),
 ]
 
 TEST_RULES: List[Rule] = [
@@ -2263,8 +2442,10 @@ TEST_RULES: List[Rule] = [
     CoverageReportColumnsRule("S-A6", ["验收标准编号", "验收标准描述", "覆盖用例编号", "状态", "未覆盖原因"]),
     AdmissionCriteriaRule("S-A7", ["代码审查", "单元测试", "构建成功"]),
     InterfaceTestCoverageRule("S-B5"),
+    UpstreamIdExistenceRule("S-B6", r"[A-Z]+(?:-[A-Z]+)*-\d+", "功能点/用例编号"),
+    VersionConsistencyRule("S-B7"),
     TableFormatRule("S-A11"),
-    UpstreamRefRule("S-B9"),
+    UpstreamRefRule("S-B10"),
 ]
 
 
