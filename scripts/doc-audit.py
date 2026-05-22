@@ -46,13 +46,37 @@ class ExtractedData:
     # 产物类型特定的提取结果
     ids: Set[str] = field(default_factory=set)
 
+    def column_values(self, column_name: str) -> List[str]:
+        """扫描所有表格，找到包含指定列名的表格，提取该列的所有数据值"""
+        values = []
+        for table in self.tables:
+            if not table or len(table) < 2:
+                continue
+            header = [c.strip() for c in table[0]]
+            if column_name not in header:
+                continue
+            col_idx = header.index(column_name)
+            for row in table[1:]:
+                if len(row) <= col_idx:
+                    continue
+                val = row[col_idx].strip()
+                if re.match(r"^:?-+:?$", val):
+                    continue
+                values.append(val)
+        return values
+
+    def column_values_set(self, column_name: str) -> Set[str]:
+        """同 column_values，返回 Set 去重"""
+        return set(self.column_values(column_name))
+
 
 @dataclass
 class AuditContext:
-    """审计上下文，包含上游文档提取的数据"""
+    """审计上下文，包含上游文档和顶层定义提取的数据"""
     doc_path: Path
     doc_type: str
     upstream_docs: Dict[str, ExtractedData] = field(default_factory=dict)
+    top_level_docs: Dict[str, ExtractedData] = field(default_factory=dict)
     user_data: Dict[str, Any] = field(default_factory=dict)
     is_template: bool = False  # 产物模板豁免标记
 
@@ -2569,6 +2593,791 @@ class TechPerformanceAlignmentRule(Rule):
         return issues
 
 
+# ── 顶层定义相关辅助函数 ──
+
+def _get_top_level_column_values(ctx: AuditContext, column_name: str) -> Set[str]:
+    """从所有顶层定义文件中提取指定表格列的值集合"""
+    values: Set[str] = set()
+    for tl_data in ctx.top_level_docs.values():
+        values.update(tl_data.column_values_set(column_name))
+    return values
+
+
+def _get_top_level_code_prefixes(ctx: AuditContext, code_type_keyword: str) -> Set[str]:
+    """从顶层定义编码规则表格中提取指定编码类型的前缀集合。
+    扫描包含'编码类型'和'前缀'列的表格，匹配 code_type_keyword 的行。"""
+    prefixes: Set[str] = set()
+    for tl_data in ctx.top_level_docs.values():
+        for table in tl_data.tables:
+            if not table or len(table) < 2:
+                continue
+            header = [c.strip() for c in table[0]]
+            if "编码类型" not in header or "前缀" not in header:
+                continue
+            type_idx = header.index("编码类型")
+            prefix_idx = header.index("前缀")
+            for row in table[1:]:
+                if len(row) <= max(type_idx, prefix_idx):
+                    continue
+                if code_type_keyword in row[type_idx]:
+                    # 前缀可能以 '/' 分隔多个选项
+                    for p in row[prefix_idx].strip().split("/"):
+                        p = p.strip()
+                        if p:
+                            prefixes.add(p)
+    return prefixes
+
+
+# ── 顶层定义一致性规则 ──
+
+class TopLevelStateValueRule(Rule):
+    """通用: 检查产物中使用的状态值是否在顶层定义中声明。
+    同时允许本产物自身声明的状态值（如 PRD §5 数据模型中的状态值）。"""
+
+    def __init__(self, check_id: str, scope_header: str, state_pattern: str = r"\b[A-Z][A-Z_]*[A-Z]\b"):
+        self.check_id = check_id
+        self.scope_header = scope_header  # 如 r"§6\s+业务规则"
+        self.state_pattern = state_pattern
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.top_level_docs:
+            return []
+        allowed = _get_top_level_column_values(ctx, "状态值")
+        if not allowed:
+            return []
+        # 同时允许本产物 §5 中声明的状态值
+        local_states = set(MarkdownExtractor(data.raw_text).table_column_values(r"§5\s+数据模型", "状态值"))
+        allowed.update(local_states)
+
+        extractor = MarkdownExtractor(data.raw_text)
+        section_text = extractor.section_text(self.scope_header)
+        found = set(re.findall(self.state_pattern, section_text))
+        issues = []
+        for val in found:
+            if val not in allowed and len(val) > 1:  # 过滤单字母误匹配
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location=self.scope_header,
+                    message=f"状态值 '{val}' 未在顶层定义或本产物 §5 中声明"
+                ))
+        return issues
+
+
+class TopLevelErrorCodeFormatRule(Rule):
+    """PRD: §7 错误码前缀应与 PRD-顶层定义编码规则一致"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.top_level_docs:
+            return []
+        prefixes = _get_top_level_code_prefixes(ctx, "错误码")
+        if not prefixes:
+            return []
+
+        extractor = MarkdownExtractor(data.raw_text)
+        error_codes = extractor.table_column_values(r"§7\s+错误处理", "错误码")
+        issues = []
+        for code in error_codes:
+            if not any(code.startswith(p) for p in prefixes):
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="§7 错误处理",
+                    message=f"错误码 '{code}' 前缀不符合顶层定义编码规则（允许前缀: {', '.join(sorted(prefixes))}）"
+                ))
+        return issues
+
+
+class TopLevelIdPrefixRule(Rule):
+    """通用: 检查产物中 ID 的前缀是否符合顶层定义编码规则。
+    用于功能编号、页面编号、用例编号等。"""
+
+    def __init__(self, check_id: str, code_type_keyword: str, id_column: str, section_header: str):
+        self.check_id = check_id
+        self.code_type_keyword = code_type_keyword  # 如 "功能编号" / "页面编号" / "用例"
+        self.id_column = id_column  # 表格中的列名
+        self.section_header = section_header
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.top_level_docs:
+            return []
+        prefixes = _get_top_level_code_prefixes(ctx, self.code_type_keyword)
+        if not prefixes:
+            return []
+
+        extractor = MarkdownExtractor(data.raw_text)
+        ids = extractor.table_column_values(self.section_header, self.id_column)
+        issues = []
+        for id_val in ids:
+            if not any(id_val.startswith(p) for p in prefixes):
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location=self.section_header,
+                    message=f"{self.id_column} '{id_val}' 前缀不符合顶层定义编码规则（允许前缀: {', '.join(sorted(prefixes))}）"
+                ))
+        return issues
+
+
+class UITopLevelTokenRule(Rule):
+    """UI: CSS 变量命名应与 UI-顶层定义 Token 列表一致"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.top_level_docs:
+            return []
+        # 从 UI-顶层定义提取 Token（优先查 "Token" 列，其次是 "CSS 变量" 列）
+        allowed: Set[str] = set()
+        for tl_data in ctx.top_level_docs.values():
+            for col_name in ("Token", "CSS 变量", "变量名"):
+                vals = tl_data.column_values_set(col_name)
+                for v in vals:
+                    if v.startswith("--"):
+                        allowed.add(v)
+        if not allowed:
+            return []
+
+        # 从 UI HTML/CSS 中提取 CSS 变量
+        css_vars: Set[str] = set()
+        for lang, content in data.code_blocks:
+            if lang in ("css", ""):
+                css_vars.update(re.findall(r"--[\w-]+", content))
+        # 同时检查 HTML 中内联 style/var()
+        css_vars.update(re.findall(r"var\((--[\w-]+)\)", data.raw_text))
+
+        issues = []
+        for var in css_vars:
+            if var not in allowed:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="CSS 变量",
+                    message=f"CSS 变量 '{var}' 不在 UI-顶层定义 Token 列表中"
+                ))
+        return issues
+
+
+class TechTopLevelFieldNamingRule(Rule):
+    """技术方案: 表结构字段命名应符合技术-顶层定义 §4.3 命名约定（snake_case）"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        # snake_case 是基础要求，不需要顶层定义也能检查
+        extractor = MarkdownExtractor(data.raw_text)
+        fields = extractor.table_column_values(r"§3\s+数据模型", "字段")
+        issues = []
+        for field in fields:
+            if not re.match(r"^[a-z][a-z0-9_]*$", field):
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="§3 数据模型",
+                    message=f"字段名 '{field}' 不符合 snake_case 命名约定"
+                ))
+        return issues
+
+
+class TestTopLevelCaseIdFormatRule(Rule):
+    """测试: 用例编号前缀应符合顶层定义编码规则"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.top_level_docs:
+            return []
+        prefixes = _get_top_level_code_prefixes(ctx, "用例")
+        if not prefixes:
+            # 也尝试匹配 "测试" 编码类型
+            prefixes = _get_top_level_code_prefixes(ctx, "测试")
+        if not prefixes:
+            return []
+
+        extractor = MarkdownExtractor(data.raw_text)
+        case_ids = extractor.table_column_values(r"§1\s+功能测试用例", "用例编号")
+        issues = []
+        for cid in case_ids:
+            if not any(cid.startswith(p) for p in prefixes):
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="§1 功能测试用例",
+                    message=f"用例编号 '{cid}' 前缀不符合顶层定义编码规则（允许前缀: {', '.join(sorted(prefixes))}）"
+                ))
+        return issues
+
+
+class TopLevelEnumRule(Rule):
+    """PRD: §5 数据模型中的枚举值应在 PRD-顶层定义或本产物 §5 中声明"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        # 从顶层定义提取枚举值
+        allowed: Set[str] = set()
+        if ctx.top_level_docs:
+            allowed.update(_get_top_level_column_values(ctx, "状态值"))
+            allowed.update(_get_top_level_column_values(ctx, "枚举值"))
+        # 同时允许本产物 §5 中声明的枚举值
+        local_enums = set(MarkdownExtractor(data.raw_text).table_column_values(r"§5\s+数据模型", "枚举值"))
+        allowed.update(local_enums)
+        if not allowed:
+            return []
+
+        # 从 §5 数据模型表格的"约束"列中提取 ENUM(...)
+        extractor = MarkdownExtractor(data.raw_text)
+        constraints = extractor.table_column_values(r"§5\s+数据模型", "约束")
+        issues = []
+        for constraint in constraints:
+            enum_match = re.search(r"ENUM\s*\(\s*([^)]+)\s*\)", constraint, re.IGNORECASE)
+            if enum_match:
+                vals = [v.strip().strip("'\"") for v in enum_match.group(1).split(",")]
+                for v in vals:
+                    if v and v not in allowed:
+                        issues.append(Issue(
+                            check_id=self.check_id, severity="warning",
+                            location="§5 数据模型",
+                            message=f"枚举值 '{v}' 未在顶层定义或本产物 §5 中声明"
+                        ))
+        return issues
+
+
+class PRDErrorCodeToTechRule(Rule):
+    """PRD→Tech: PRD §7 每个错误码应在技术方案 §7 异常处理中有对应映射"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.upstream_docs:
+            return []
+        # 从 PRD §7 提取错误码
+        prd_codes: Set[str] = set()
+        for up_data in ctx.upstream_docs.values():
+            codes = MarkdownExtractor(up_data.raw_text).table_column_values(r"§7\s+错误处理", "错误码")
+            prd_codes.update(c for c in codes if c)
+        if not prd_codes:
+            return []
+
+        # 从当前 Tech §7 提取错误码
+        tech_codes: Set[str] = set()
+        extractor = MarkdownExtractor(data.raw_text)
+        tech_codes.update(extractor.table_column_values(r"§7\s+异常处理", "错误码"))
+        # 同时扫描异常编号列（有些技术方案用"异常编号"而非"错误码"）
+        tech_codes.update(extractor.table_column_values(r"§7\s+异常处理", "异常编号"))
+
+        issues = []
+        for code in prd_codes:
+            if code not in tech_codes:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="§7 异常处理",
+                    message=f"PRD 错误码 '{code}' 未在技术方案 §7 中找到对应映射"
+                ))
+        return issues
+
+
+class PRDEntityToTechTableRule(Rule):
+    """Tech: PRD §5 每个实体应在技术方案 §3 中有对应表"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.upstream_docs:
+            return []
+        prd_entities: Set[str] = set()
+        for up_data in ctx.upstream_docs.values():
+            prd_entities.update(MarkdownExtractor(up_data.raw_text).table_column_values(r"§5\s+数据模型", "实体"))
+        if not prd_entities:
+            return []
+
+        tech_tables: Set[str] = set()
+        extractor = MarkdownExtractor(data.raw_text)
+        tech_tables.update(extractor.table_column_values(r"§3\s+数据模型", "表名"))
+        # 也尝试从 heading 中提取表名（如 "### 用户表"）
+        for level, title in data.sections:
+            if "表" in title:
+                tech_tables.add(title.replace("#", "").strip())
+
+        issues = []
+        for entity in prd_entities:
+            if not any(entity.lower() in t.lower() or t.lower() in entity.lower() for t in tech_tables if t):
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="§3 数据模型",
+                    message=f"PRD §5 实体 '{entity}' 在技术方案 §3 中未找到对应表"
+                ))
+        return issues
+
+
+class PRDFieldToTechFieldRule(Rule):
+    """Tech: PRD §5 每个字段应在技术方案 §3/§4 中有对应实现"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.upstream_docs:
+            return []
+        prd_fields: Set[str] = set()
+        for up_data in ctx.upstream_docs.values():
+            prd_fields.update(MarkdownExtractor(up_data.raw_text).table_column_values(r"§5\s+数据模型", "字段"))
+        if not prd_fields:
+            return []
+
+        tech_fields: Set[str] = set()
+        extractor = MarkdownExtractor(data.raw_text)
+        tech_fields.update(extractor.table_column_values(r"§3\s+数据模型", "字段"))
+        tech_fields.update(extractor.table_column_values(r"§4\s+接口设计", "字段"))
+        tech_fields.update(extractor.table_column_values(r"§4\s+接口设计", "参数名"))
+
+        issues = []
+        for field in prd_fields:
+            if field not in tech_fields:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="§3/§4 数据模型/接口设计",
+                    message=f"PRD §5 字段 '{field}' 在技术方案 §3/§4 中未找到对应实现"
+                ))
+        return issues
+
+
+class PRDErrorCodeToTestRule(Rule):
+    """Test: PRD §7 每个错误码应在测试 §2 中有对应验证"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.upstream_docs:
+            return []
+        prd_codes: Set[str] = set()
+        for up_data in ctx.upstream_docs.values():
+            prd_codes.update(MarkdownExtractor(up_data.raw_text).table_column_values(r"§7\s+错误处理", "错误码"))
+        if not prd_codes:
+            return []
+
+        test_codes: Set[str] = set()
+        extractor = MarkdownExtractor(data.raw_text)
+        test_codes.update(extractor.table_column_values(r"§2\s+异常测试用例", "错误码"))
+        # 扫描预期结果列中是否包含错误码
+        for result in extractor.table_column_values(r"§2\s+异常测试用例", "预期结果"):
+            test_codes.update(re.findall(r"\b[A-Z]+(?:-[A-Z]+)*-\d+\b", result))
+
+        issues = []
+        for code in prd_codes:
+            if code not in test_codes:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="§2 异常测试用例",
+                    message=f"PRD 错误码 '{code}' 在测试 §2 中未找到对应验证"
+                ))
+        return issues
+
+
+class TestRegressionCaseExistenceRule(Rule):
+    """Test: §7 回归范围中列出的用例编号应在 §1/§2 中存在"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        # 从 §7 提取回归用例编号（可能在"回归范围"或"用例编号"列）
+        regression_ids: Set[str] = set()
+        for col in ("用例编号", "回归用例", "用例"):
+            vals = extractor.table_column_values(r"§7\s+回归测试策略", col)
+            regression_ids.update(v for v in vals if v)
+        if not regression_ids:
+            # 尝试从 §7 全文提取编号格式的文本
+            section_text = extractor.section_text(r"§7\s+回归测试策略")
+            regression_ids = set(re.findall(r"\b[A-Z]+(?:-[A-Z]+)*-\d+\b", section_text))
+        if not regression_ids:
+            return []
+
+        # 从 §1 和 §2 提取所有用例编号
+        all_case_ids: Set[str] = set()
+        for sec in (r"§1\s+功能测试用例", r"§2\s+异常测试用例"):
+            for col in ("用例编号", "编号"):
+                all_case_ids.update(extractor.table_column_values(sec, col))
+
+        issues = []
+        for rid in regression_ids:
+            if rid not in all_case_ids:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="§7 回归测试策略",
+                    message=f"回归范围用例编号 '{rid}' 在 §1/§2 中未找到"
+                ))
+        return issues
+
+
+class TechExceptionToTestRule(Rule):
+    """Test: 技术方案 §7 每个异常场景应在测试 §2 中有对应验证"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.upstream_docs:
+            return []
+        tech_exceptions: Set[str] = set()
+        for up_data in ctx.upstream_docs.values():
+            extractor = MarkdownExtractor(up_data.raw_text)
+            tech_exceptions.update(extractor.table_column_values(r"§7\s+异常处理", "异常编号"))
+            tech_exceptions.update(extractor.table_column_values(r"§7\s+异常处理", "错误码"))
+        if not tech_exceptions:
+            return []
+
+        test_codes: Set[str] = set()
+        extractor = MarkdownExtractor(data.raw_text)
+        test_codes.update(extractor.table_column_values(r"§2\s+异常测试用例", "错误码"))
+        test_codes.update(extractor.table_column_values(r"§2\s+异常测试用例", "异常编号"))
+        for result in extractor.table_column_values(r"§2\s+异常测试用例", "预期结果"):
+            test_codes.update(re.findall(r"\b[A-Z]+(?:-[A-Z]+)*-\d+\b", result))
+
+        issues = []
+        for exc in tech_exceptions:
+            if exc and exc not in test_codes:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="§2 异常测试用例",
+                    message=f"技术方案异常 '{exc}' 在测试 §2 中未找到对应验证"
+                ))
+        return issues
+
+
+class TechInterfaceToTestRule(Rule):
+    """Test: 技术方案 §13/§4 每个接口应在测试 §1/§2 中有对应测试覆盖"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.upstream_docs:
+            return []
+        tech_interfaces: Set[str] = set()
+        for up_data in ctx.upstream_docs.values():
+            extractor = MarkdownExtractor(up_data.raw_text)
+            for sec in (r"§13\s+接口清单", r"§4\s+接口设计"):
+                for col in ("路径", "URL", "接口地址"):
+                    tech_interfaces.update(extractor.table_column_values(sec, col))
+        tech_interfaces = {i for i in tech_interfaces if i}
+        if not tech_interfaces:
+            return []
+
+        test_text = MarkdownExtractor(data.raw_text).section_text(r"§1\s+功能测试用例") + "\n" + \
+                    MarkdownExtractor(data.raw_text).section_text(r"§2\s+异常测试用例")
+
+        issues = []
+        for iface in tech_interfaces:
+            path_core = re.sub(r"^https?://[^/]+", "", iface)
+            path_core = path_core.split("?")[0]
+            if path_core and path_core not in test_text:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="§1/§2 测试用例",
+                    message=f"技术方案接口 '{iface}' 在测试 §1/§2 中未找到对应测试覆盖"
+                ))
+        return issues
+
+
+class PRDPerformanceToTestRule(Rule):
+    """Test: PRD §4 性能指标应在测试 §3 中有对应测试项"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.upstream_docs:
+            return []
+        prd_metrics: Set[str] = set()
+        for up_data in ctx.upstream_docs.values():
+            prd_text = MarkdownExtractor(up_data.raw_text).section_text(r"§4\s+非功能需求")
+            for line in prd_text.splitlines():
+                if re.search(r"\d+\s*(ms|s|秒|QPS|TPS|RPS|并发|吞吐量)", line):
+                    m = re.search(r"([\u4e00-\u9fa5]+(?:时间|数|量|率|吞吐))", line)
+                    if m:
+                        prd_metrics.add(m.group(1))
+        if not prd_metrics:
+            return []
+
+        test_perf_text = MarkdownExtractor(data.raw_text).section_text(r"§3\s+性能测试")
+        issues = []
+        for metric in prd_metrics:
+            if metric not in test_perf_text:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="§3 性能测试",
+                    message=f"PRD §4 性能指标 '{metric}' 在测试 §3 中未找到对应测试项"
+                ))
+        return issues
+
+
+class InteractionConstraintToTechRule(Rule):
+    """Tech: 交互设计力学约束数值应在 §4/§9 中有对应配置"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.upstream_docs:
+            return []
+        constraints: Set[str] = set()
+        for up_data in ctx.upstream_docs.values():
+            for table in up_data.tables:
+                if not table or len(table) < 2:
+                    continue
+                header = [c.strip() for c in table[0]]
+                if "力学约束" in header:
+                    col_idx = header.index("力学约束")
+                    for row in table[1:]:
+                        if len(row) > col_idx:
+                            val = row[col_idx].strip()
+                            if val:
+                                constraints.add(val)
+        if not constraints:
+            return []
+
+        extractor = MarkdownExtractor(data.raw_text)
+        tech_text = extractor.section_text(r"§4\s+接口设计") + "\n" + extractor.section_text(r"§9\s+高可用设计")
+
+        issues = []
+        for constraint in constraints:
+            nums = re.findall(r"\d+\s*(?:ms|s|秒|次|分钟|min)", constraint)
+            if not nums:
+                continue
+            found = False
+            for num in nums:
+                if num in tech_text:
+                    found = True
+                    break
+            if not found:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="§4/§9 接口设计/高可用设计",
+                    message=f"交互设计力学约束 '{constraint}' 在技术方案 §4/§9 中未找到对应配置"
+                ))
+        return issues
+
+
+class InteractionExceptionToTechRule(Rule):
+    """Tech: 交互设计异常处理引用的错误码应在 §4/§7 中有映射"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.upstream_docs:
+            return []
+        inter_codes: Set[str] = set()
+        for up_data in ctx.upstream_docs.values():
+            extractor = MarkdownExtractor(up_data.raw_text)
+            inter_codes.update(extractor.table_column_values(r"异常处理", "错误码"))
+        inter_codes = {c for c in inter_codes if c}
+        if not inter_codes:
+            return []
+
+        tech_codes: Set[str] = set()
+        extractor = MarkdownExtractor(data.raw_text)
+        tech_codes.update(extractor.table_column_values(r"§4\s+接口设计", "错误码"))
+        tech_codes.update(extractor.table_column_values(r"§7\s+异常处理", "错误码"))
+
+        issues = []
+        for code in inter_codes:
+            if code not in tech_codes:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="§4/§7 接口设计/异常处理",
+                    message=f"交互设计错误码 '{code}' 在技术方案 §4/§7 中未找到对应映射"
+                ))
+        return issues
+
+
+class InteractionJumpToTechInterfaceRule(Rule):
+    """Tech: 交互设计页面流程中的跳转应在 §4 中有对应接口"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.upstream_docs:
+            return []
+        jumps: Set[str] = set()
+        for up_data in ctx.upstream_docs.values():
+            extractor = MarkdownExtractor(up_data.raw_text)
+            section_text = extractor.section_text(r"页面流程")
+            jumps.update(re.findall(r"跳转到\s*([^\s，。]+)", section_text))
+            jumps.update(re.findall(r"href\s*=\s*['\"]([^'\"]+)['\"]", section_text))
+        jumps = {j for j in jumps if j}
+        if not jumps:
+            return []
+
+        tech_urls: Set[str] = set()
+        extractor = MarkdownExtractor(data.raw_text)
+        for col in ("URL", "路径", "接口地址"):
+            tech_urls.update(extractor.table_column_values(r"§4\s+接口设计", col))
+
+        issues = []
+        for jump in jumps:
+            found = False
+            for url in tech_urls:
+                if url and (jump.lower() in url.lower() or url.lower() in jump.lower()):
+                    found = True
+                    break
+            if not found:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="§4 接口设计",
+                    message=f"交互设计页面跳转 '{jump}' 在技术方案 §4 中未找到对应接口"
+                ))
+        return issues
+
+
+class ErrorCodeCountMatchRule(Rule):
+    """PRD: §7 错误码数量应与上游 Tech §7 / Test §2 匹配（需同时加载 Tech 和 Test 上游）"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or len(ctx.upstream_docs) < 2:
+            return []
+        prd_codes = set(MarkdownExtractor(data.raw_text).table_column_values(r"§7\s+错误处理", "错误码"))
+        prd_count = len(prd_codes)
+        if prd_count == 0:
+            return []
+
+        tech_count = 0
+        test_count = 0
+        for up_data in ctx.upstream_docs.values():
+            extractor = MarkdownExtractor(up_data.raw_text)
+            tech_codes = set(extractor.table_column_values(r"§7\s+异常处理", "错误码"))
+            test_codes = set(extractor.table_column_values(r"§2\s+异常测试用例", "错误码"))
+            if tech_codes:
+                tech_count = len(tech_codes)
+            if test_codes:
+                test_count = len(test_codes)
+
+        issues = []
+        if tech_count > 0 and prd_count != tech_count:
+            issues.append(Issue(
+                check_id=self.check_id, severity="warning",
+                location="§7 错误处理",
+                message=f"PRD 错误码数量({prd_count})与技术方案异常数量({tech_count})不一致"
+            ))
+        if test_count > 0 and prd_count != test_count:
+            issues.append(Issue(
+                check_id=self.check_id, severity="warning",
+                location="§7 错误处理",
+                message=f"PRD 错误码数量({prd_count})与测试异常验证数量({test_count})不一致"
+            ))
+        return issues
+
+
+class TechCacheKeyNamingRule(Rule):
+    """Tech: §8 缓存策略 Key 命名应符合技术-顶层定义"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.top_level_docs:
+            return []
+        # 从顶层定义提取缓存 Key 前缀/模式
+        allowed_prefixes: Set[str] = set()
+        for tl_data in ctx.top_level_docs.values():
+            vals = tl_data.column_values_set("缓存 Key")
+            allowed_prefixes.update(v for v in vals if v)
+            vals2 = tl_data.column_values_set("Key")
+            allowed_prefixes.update(v for v in vals2 if v)
+        if not allowed_prefixes:
+            return []
+
+        extractor = MarkdownExtractor(data.raw_text)
+        cache_keys = extractor.table_column_values(r"§8\s+性能与扩展性", "缓存 Key")
+        issues = []
+        for key in cache_keys:
+            if not any(key.startswith(p) or p in key for p in allowed_prefixes):
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="§8 性能与扩展性",
+                    message=f"缓存 Key '{key}' 不符合技术-顶层定义命名规范"
+                ))
+        return issues
+
+
+class UIResponsiveBreakpointValueRule(Rule):
+    """UI: @media 断点值应与 UI-顶层定义一致"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.top_level_docs:
+            return []
+        allowed: Set[str] = set()
+        for tl_data in ctx.top_level_docs.values():
+            for col in ("断点", "breakpoint", "Breakpoint"):
+                allowed.update(tl_data.column_values_set(col))
+        if not allowed:
+            return []
+
+        breakpoints: Set[str] = set()
+        for lang, content in data.code_blocks:
+            if lang in ("css", ""):
+                breakpoints.update(re.findall(r"@media\s*\([^)]*(\d+px)[^)]*\)", content))
+
+        issues = []
+        for bp in breakpoints:
+            if bp not in allowed:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="响应式断点",
+                    message=f"响应式断点 '{bp}' 不在 UI-顶层定义允许的断点列表中"
+                ))
+        return issues
+
+
+class TechSecurityToTestRule(Rule):
+    """Test: 技术方案 §10 安全措施应在测试 §4 中有对应验证"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template or not ctx.upstream_docs:
+            return []
+        tech_measures: Set[str] = set()
+        for up_data in ctx.upstream_docs.values():
+            extractor = MarkdownExtractor(up_data.raw_text)
+            for col in ("安全措施", "安全项", "安全策略"):
+                tech_measures.update(extractor.table_column_values(r"§10\s+安全设计", col))
+        tech_measures = {m for m in tech_measures if m}
+        if not tech_measures:
+            return []
+
+        test_sec_text = MarkdownExtractor(data.raw_text).section_text(r"§4\s+安全测试")
+        issues = []
+        for measure in tech_measures:
+            if measure not in test_sec_text:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="§4 安全测试",
+                    message=f"技术方案安全措施 '{measure}' 在测试 §4 中未找到对应验证"
+                ))
+        return issues
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 4. 各产物类型的规则集
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2595,6 +3404,11 @@ PRD_RULES: List[Rule] = [
     PRDCoverageConsistencyRule("P-B3"),
     VersionConsistencyRule("P-B4"),
     UpstreamRefRule("P-B5"),
+    TopLevelStateValueRule("P-B1", r"§6\s+业务规则"),
+    TopLevelErrorCodeFormatRule("P-B6"),
+    TopLevelIdPrefixRule("P-B2", "功能编号", "功能编号", r"§3\s+功能需求"),
+    TopLevelEnumRule("P-B7"),
+    ErrorCodeCountMatchRule("P-B8"),
 ]
 
 INTERACTION_RULES: List[Rule] = [
@@ -2612,6 +3426,8 @@ INTERACTION_RULES: List[Rule] = [
     InteractionJumpTargetRule("I-B4"),
     TableFormatRule("I-A12"),
     UpstreamRefRule("I-B6"),
+    TopLevelStateValueRule("I-B7", r"状态机"),
+    TopLevelIdPrefixRule("I-B8", "页面编号", "页面编号", r"§\d+\s+.*页面"),
 ]
 
 UI_RULES: List[Rule] = [
@@ -2635,6 +3451,8 @@ UI_RULES: List[Rule] = [
     ResponsiveBreakpointRule("U-B5"),
     TableFormatRule("U-A12"),
     UpstreamRefRule("U-B7"),
+    UITopLevelTokenRule("U-B4"),
+    UIResponsiveBreakpointValueRule("U-B6"),
 ]
 
 TECH_RULES: List[Rule] = [
@@ -2661,6 +3479,14 @@ TECH_RULES: List[Rule] = [
     VersionConsistencyRule("T-B5"),
     TechFieldToApiRefRule("T-B6"),
     TechPerformanceAlignmentRule("T-B7"),
+    TechTopLevelFieldNamingRule("T-A14"),
+    PRDErrorCodeToTechRule("T-B8"),
+    PRDEntityToTechTableRule("T-B9"),
+    PRDFieldToTechFieldRule("T-B10"),
+    InteractionConstraintToTechRule("T-B11"),
+    InteractionExceptionToTechRule("T-B12"),
+    InteractionJumpToTechInterfaceRule("T-B14"),
+    TechCacheKeyNamingRule("T-B15"),
     UpstreamRefRule("T-B13"),
 ]
 
@@ -2685,6 +3511,13 @@ TEST_RULES: List[Rule] = [
     TestSecurityCompletenessRule("S-A10"),
     TableFormatRule("S-A11"),
     UpstreamRefRule("S-B10"),
+    TestTopLevelCaseIdFormatRule("S-B1"),
+    TestRegressionCaseExistenceRule("S-B11"),
+    PRDErrorCodeToTestRule("S-B12"),
+    TechExceptionToTestRule("S-B13"),
+    TechInterfaceToTestRule("S-B14"),
+    PRDPerformanceToTestRule("S-B15"),
+    TechSecurityToTestRule("S-B16"),
 ]
 
 
@@ -2704,13 +3537,14 @@ RULE_SETS = {
 class AuditEngine:
     """审计引擎：提取数据 → 加载规则 → 执行检查 → 汇总结果"""
 
-    def __init__(self, doc_path: str, doc_type: str, upstream_paths: Optional[List[str]] = None):
+    def __init__(self, doc_path: str, doc_type: str, upstream_paths: Optional[List[str]] = None, top_level_paths: Optional[List[str]] = None):
         self.doc_path = Path(doc_path)
         self.doc_type = doc_type
         self.raw_text = self.doc_path.read_text(encoding="utf-8")
         self.data = self._extract()
         self.ctx = AuditContext(doc_path=self.doc_path, doc_type=doc_type)
         self._load_upstream(upstream_paths or [])
+        self._load_top_level(top_level_paths or [])
 
     def _extract(self) -> ExtractedData:
         if self.doc_path.suffix == ".html":
@@ -2731,6 +3565,16 @@ class AuditEngine:
                     self.ctx.upstream_docs[str(p)] = HTMLExtractor(text).extract()
                 else:
                     self.ctx.upstream_docs[str(p)] = MarkdownExtractor(text).extract()
+
+    def _load_top_level(self, top_level_paths: List[str]):
+        for tl_path in top_level_paths:
+            p = Path(tl_path)
+            if p.exists():
+                text = p.read_text(encoding="utf-8")
+                if p.suffix == ".html":
+                    self.ctx.top_level_docs[str(p)] = HTMLExtractor(text).extract()
+                else:
+                    self.ctx.top_level_docs[str(p)] = MarkdownExtractor(text).extract()
 
     def run(self) -> dict:
         self.ctx.is_template = self._detect_template()
@@ -2821,6 +3665,7 @@ def main():
     parser.add_argument("doc_path", help="待审计产物路径")
     parser.add_argument("--type", required=True, choices=list(RULE_SETS.keys()), help="产物类型")
     parser.add_argument("--upstream", nargs="*", default=[], help="上游文档路径")
+    parser.add_argument("--top-level", nargs="*", default=[], help="顶层定义文件路径")
     parser.add_argument("--scan-downstream", metavar="DIR", default="", help="扫描下游引用")
     args = parser.parse_args()
 
@@ -2843,7 +3688,7 @@ def main():
         }, ensure_ascii=False, indent=2))
         sys.exit(0)
 
-    engine = AuditEngine(str(doc_path), args.type, upstream_paths=args.upstream)
+    engine = AuditEngine(str(doc_path), args.type, upstream_paths=args.upstream, top_level_paths=args.top_level)
     result = engine.run()
     print(json.dumps(result, ensure_ascii=False, indent=2))
     sys.exit(0 if result["passed"] else 1)
