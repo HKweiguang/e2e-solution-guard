@@ -201,6 +201,26 @@ class MarkdownExtractor:
         # 默认模式
         return set(re.findall(r"\b[A-Za-z][A-Za-z0-9_]*(?:-[A-Za-z][A-Za-z0-9_]*)*-\d+\b", text))
 
+    def table_column_values(self, header_pattern: str, column_name: str) -> List[str]:
+        """在匹配 header_pattern 的 heading 后的第一个表格中，提取指定列的所有数据值"""
+        table = self.table_after_heading(header_pattern)
+        if not table or len(table) < 2:
+            return []
+        header = [c.strip() for c in table[0]]
+        if column_name not in header:
+            return []
+        col_idx = header.index(column_name)
+        values = []
+        for row in table[1:]:
+            if len(row) <= col_idx:
+                continue
+            val = row[col_idx].strip()
+            # 跳过分隔符行（如 :---:）
+            if re.match(r"^:?-+:?$", val):
+                continue
+            values.append(val)
+        return values
+
 
 class HTMLExtractor:
     """从 UI HTML 产物中提取结构化数据"""
@@ -480,6 +500,301 @@ class SetAlignmentRule(Rule):
                     message=f"未覆盖项: {', '.join(sorted(missing))}"
                 ))
         return issues
+
+
+class BidirectionalMappingRule(Rule):
+    """双向映射完整性检查：检查当前文档与上游 PRD 之间的功能点编号映射是否完整
+
+    正向（PRD → 当前）：PRD §3 功能需求中的功能编号是否在技术方案中有对应引用
+    反向（当前 → PRD）：技术方案中引用的功能点编号是否在 PRD 中存在
+    """
+
+    def __init__(self, check_id: str,
+                 upstream_file_hint: str = "prd",
+                 forward_severity: str = "warning",
+                 reverse_severity: str = "warning"):
+        self.check_id = check_id
+        self.upstream_file_hint = upstream_file_hint
+        self.forward_severity = forward_severity
+        self.reverse_severity = reverse_severity
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        issues = []
+
+        # 1. 查找上游 PRD
+        upstream_data = self._find_upstream(ctx)
+        if not upstream_data:
+            return issues
+
+        # 2. 从 PRD §3 功能需求表格提取「功能编号」列
+        prd_extractor = MarkdownExtractor(upstream_data.raw_text)
+        prd_feature_ids = set(prd_extractor.table_column_values(r"§3\s+功能需求", "功能编号"))
+        # 回退：从全文正则提取（当表格无"功能编号"列时）
+        if not prd_feature_ids:
+            prd_feature_ids = set(re.findall(
+                r"\b[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+\b",
+                upstream_data.raw_text
+            ))
+
+        # 3. 从当前文档提取功能点引用
+        tech_extractor = MarkdownExtractor(data.raw_text)
+        tech_feature_ids: Set[str] = set()
+        # §4 接口设计的「对应功能点」列
+        tech_feature_ids.update(tech_extractor.table_column_values(r"§4\s+接口设计", "对应功能点"))
+        # §13 接口清单的「对应功能点」列
+        tech_feature_ids.update(tech_extractor.table_column_values(r"§13\s+接口清单", "对应功能点"))
+        # 头部「覆盖功能点」行
+        header_match = re.search(r"\*\*覆盖功能点\*\*[:：]?\s*(.+?)(?:\n|$)", data.raw_text)
+        if header_match:
+            tech_feature_ids.update(re.findall(
+                r"\b[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+\b",
+                header_match.group(1)
+            ))
+
+        # 4. 正向检查：PRD 有但当前文档没有
+        missing_in_current = prd_feature_ids - tech_feature_ids
+        for fp_id in missing_in_current:
+            issues.append(Issue(
+                check_id=self.check_id,
+                severity=self.forward_severity,
+                location="双向映射",
+                message=f"PRD 功能点 {fp_id} 在技术方案中无对应引用"
+            ))
+
+        # 5. 反向检查：当前文档有但 PRD 没有
+        missing_in_prd = tech_feature_ids - prd_feature_ids
+        for fp_id in missing_in_prd:
+            issues.append(Issue(
+                check_id=self.check_id,
+                severity=self.reverse_severity,
+                location="双向映射",
+                message=f"技术方案引用了 PRD 中不存在的需求 {fp_id}"
+            ))
+
+        return issues
+
+    def _find_upstream(self, ctx: AuditContext) -> Optional[ExtractedData]:
+        for path, up_data in ctx.upstream_docs.items():
+            if self.upstream_file_hint.lower() in path.lower():
+                return up_data
+        return None
+
+
+class CrossDocTerminologyRule(Rule):
+    """跨产物术语一致性检查：从上游 PRD-顶层定义的术语表中提取「禁止别名」，
+    检查当前文档中是否使用了禁止别名。"""
+
+    def __init__(self, check_id: str,
+                 upstream_file_hint: str = "prd-top-level",
+                 severity: str = "warning"):
+        self.check_id = check_id
+        self.upstream_file_hint = upstream_file_hint
+        self.severity = severity
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+
+        # 1. 查找上游 PRD-顶层定义
+        upstream_data = self._find_upstream(ctx)
+        if not upstream_data:
+            return []
+
+        # 2. 从 PRD-顶层定义 §4 术语表提取「禁止别名」
+        extractor = MarkdownExtractor(upstream_data.raw_text)
+        table = extractor.table_after_heading(r"§4\s+术语表")
+        if not table or len(table) < 2:
+            return []
+
+        header = [c.strip() for c in table[0]]
+        if "术语" not in header or "禁止别名" not in header:
+            return []
+
+        term_idx = header.index("术语")
+        alias_idx = header.index("禁止别名")
+
+        forbidden_aliases: Dict[str, str] = {}  # 禁止别名 -> 标准术语
+        for row in table[1:]:
+            if len(row) <= max(term_idx, alias_idx):
+                continue
+            term = row[term_idx].strip()
+            alias_text = row[alias_idx].strip()
+            # 跳过分隔符行（如 :---:）
+            if re.match(r"^:?-+:?$", term) or re.match(r"^:?-+:?$", alias_text):
+                continue
+            # 提取引号内的别名（支持中文/英文引号）
+            aliases = re.findall(r'[""''""'']([^""''""'']+)[""''""'']', alias_text)
+            if not aliases:
+                # 回退：按常见分隔符拆分
+                aliases = re.split(r"[，,、；;]", alias_text)
+            for alias in aliases:
+                alias = alias.strip()
+                alias = re.sub(r"^(不可称|禁止称|不要称|避免使用)[\"'\"'\"'\"'\"'\"']?", "", alias).strip()
+                alias = re.sub(r"[\"'\"'\"'\"'\"'\"']$", "", alias).strip()
+                if alias and alias not in ("—", "-", "", "无"):
+                    forbidden_aliases[alias] = term
+
+        if not forbidden_aliases:
+            return []
+
+        # 3. 检查当前文档中是否出现了禁止别名
+        issues = []
+        text = data.raw_text
+        for alias, standard_term in sorted(forbidden_aliases.items(), key=lambda x: -len(x[0])):
+            # 中文无空格分词，采用「前后非同类字符」作为边界：
+            # 前面是字符串开头、空格、标点；后面同理。
+            # 对于多字别名（常见情况），直接精确匹配即可，误报率极低。
+            escaped = re.escape(alias)
+            if len(alias) >= 2:
+                pattern = escaped
+            else:
+                # 单字别名需要更严格的边界
+                pattern = r"(?<![\u4e00-\u9fa5a-zA-Z0-9])" + escaped + r"(?![\u4e00-\u9fa5a-zA-Z0-9])"
+            for m in re.finditer(pattern, text):
+                start = max(0, m.start() - 30)
+                end = min(len(text), m.end() + 30)
+                context = text[start:end].replace("\n", " ")
+                issues.append(Issue(
+                    check_id=self.check_id,
+                    severity=self.severity,
+                    location="术语一致性",
+                    message=f"发现禁止别名「{alias}」（标准术语应为「{standard_term}」），上下文: ...{context}..."
+                ))
+        return issues
+
+    def _find_upstream(self, ctx: AuditContext) -> Optional[ExtractedData]:
+        for path, up_data in ctx.upstream_docs.items():
+            if self.upstream_file_hint.lower() in path.lower():
+                return up_data
+        # 回退：找任何包含 "prd" 且路径中包含 "top" 的 upstream
+        for path, up_data in ctx.upstream_docs.items():
+            if "prd" in path.lower() and ("top" in path.lower() or "顶层" in path):
+                return up_data
+        return None
+
+
+class BrokenInternalLinkRule(Rule):
+    """检查文档内部的 §x 交叉引用是否指向存在的章节"""
+
+    def __init__(self, check_id: str, severity: str = "warning"):
+        self.check_id = check_id
+        self.severity = severity
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+
+        # 1. 提取文档中所有 §x 引用（如 §3、§4.2、§2.1.3）
+        ref_pattern = r"§(\d+(?:\.\d+)*)"
+        refs = set(re.findall(ref_pattern, data.raw_text))
+
+        # 2. 提取文档中实际存在的章节编号
+        actual_sections: Set[str] = set()
+        for level, title in data.sections:
+            m = re.search(r"§(\d+(?:\.\d+)*)\s", title)
+            if m:
+                actual_sections.add(m.group(1))
+
+        # 3. 检查每个引用是否存在（精确匹配或作为前缀）
+        issues = []
+        for ref in sorted(refs, key=lambda x: list(map(int, x.split(".")))):
+            if not self._section_exists(ref, actual_sections):
+                issues.append(Issue(
+                    check_id=self.check_id,
+                    severity=self.severity,
+                    location="内部引用",
+                    message=f"引用 §{ref} 在文档中不存在"
+                ))
+        return issues
+
+    @staticmethod
+    def _section_exists(ref: str, actual_sections: Set[str]) -> bool:
+        if ref in actual_sections:
+            return True
+        # 检查是否有以 ref + "." 开头的子章节
+        for sec in actual_sections:
+            if sec.startswith(ref + "."):
+                return True
+        return False
+
+
+class ResponsiveBreakpointRule(Rule):
+    """检查 UI HTML 中的 @media 断点是否与 UI-顶层定义一致"""
+
+    def __init__(self, check_id: str,
+                 upstream_file_hint: str = "ui-top-level",
+                 severity: str = "warning"):
+        self.check_id = check_id
+        self.upstream_file_hint = upstream_file_hint
+        self.severity = severity
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+
+        # 1. 查找上游 UI-顶层定义
+        upstream_data = self._find_upstream(ctx)
+        if not upstream_data:
+            return []
+
+        # 2. 从 UI-顶层定义 §2.5.5 提取断点数值
+        extractor = MarkdownExtractor(upstream_data.raw_text)
+        table = extractor.table_after_heading(r"§2\.5\.5\s+响应式断点")
+        if not table or len(table) < 2:
+            return []
+
+        header = [c.strip() for c in table[0]]
+        if "范围" not in header:
+            return []
+
+        range_idx = header.index("范围")
+        expected_breakpoints: Set[str] = set()
+        for row in table[1:]:
+            if len(row) <= range_idx:
+                continue
+            range_val = row[range_idx].strip()
+            if re.match(r"^:?-+:?$", range_val):
+                continue
+            nums = re.findall(r"\d+", range_val)
+            expected_breakpoints.update(nums)
+
+        if not expected_breakpoints:
+            return []
+
+        # 3. 从 HTML 中提取 @media 断点
+        html_breakpoints: Set[str] = set()
+        for m in re.finditer(r"@media\s*\([^)]*?width\s*[:<>=]+\s*(\d+)px", data.raw_text):
+            html_breakpoints.add(m.group(1))
+
+        # 4. 比对
+        issues = []
+        missing_in_html = expected_breakpoints - html_breakpoints
+        for bp in sorted(missing_in_html, key=int):
+            issues.append(Issue(
+                check_id=self.check_id,
+                severity=self.severity,
+                location="响应式断点",
+                message=f"UI-顶层定义声明的断点 {bp}px 在 HTML 中未找到对应的 @media 查询"
+            ))
+
+        extra_in_html = html_breakpoints - expected_breakpoints
+        for bp in sorted(extra_in_html, key=int):
+            issues.append(Issue(
+                check_id=self.check_id,
+                severity="info",
+                location="响应式断点",
+                message=f"HTML 中使用了 UI-顶层定义未声明的断点 {bp}px"
+            ))
+
+        return issues
+
+    def _find_upstream(self, ctx: AuditContext) -> Optional[ExtractedData]:
+        for path, up_data in ctx.upstream_docs.items():
+            if self.upstream_file_hint.lower() in path.lower():
+                return up_data
+        return None
 
 
 class RegexMatchRule(Rule):
@@ -1044,6 +1359,8 @@ PRD_RULES: List[Rule] = [
     AcceptanceFeatureRefRule("P-A12"),
     P0AcceptanceRule("P-A14"),
     TableFormatRule("P-A15"),
+    BrokenInternalLinkRule("P-A16"),
+    CrossDocTerminologyRule("P-B2"),
     UpstreamRefRule("P-B4"),
 ]
 
@@ -1072,6 +1389,7 @@ UI_RULES: List[Rule] = [
     UIStateMapRule("U-A7"),
     UIClassConsistencyRule("U-A8"),
     StateStyleExistRule("U-B3", ["hover", "active", "focus", "disabled", "loading", "empty", "error", "success", "skeleton"]),
+    ResponsiveBreakpointRule("U-B5"),
     TableFormatRule("U-A12"),
     UpstreamRefRule("U-B6"),
 ]
@@ -1085,6 +1403,9 @@ TECH_RULES: List[Rule] = [
     TechAuditFieldRule("T-A2", ["created_at", "updated_at", "creator_id", "updater_id", "created_by", "updated_by"]),
     TechInterfaceElementsRule("T-A4", ["URL", "方法", "请求参数", "响应结构", "错误码"]),
     TableFormatRule("T-A12"),
+    BrokenInternalLinkRule("T-A13"),
+    BidirectionalMappingRule("T-B1", forward_severity="warning", reverse_severity="warning"),
+    CrossDocTerminologyRule("T-B2"),
     UpstreamRefRule("T-B12"),
 ]
 
