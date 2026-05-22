@@ -152,31 +152,26 @@ class MarkdownExtractor:
     # ── 精细提取工具 ──
 
     def section_text(self, header_pattern: str) -> str:
-        """提取匹配 header_pattern 的 heading 及其子章节文本（直到同级或更高级 heading）"""
-        start_idx = -1
+        """提取匹配 header_pattern 的 heading 及其后的全部文本（直到同级或更高级 heading）"""
+        lines = self.raw_text.splitlines()
+        start_line = -1
         level = 6
-        for idx, n in enumerate(self.nodes):
-            if n["type"] == "heading" and re.search(header_pattern, n["text"]):
-                start_idx = idx
-                level = n["level"]
+        for i, line in enumerate(lines):
+            m = re.match(r"^(#{1,6})\s+(.*)$", line.strip())
+            if m and re.search(header_pattern, m.group(2).strip()):
+                start_line = i
+                level = len(m.group(1))
                 break
-        if start_idx == -1:
+        if start_line == -1:
             return ""
 
         parts: List[str] = []
-        for n in self.nodes[start_idx + 1:]:
-            if n["type"] == "heading" and n["level"] <= level:
+        for line in lines[start_line + 1:]:
+            m = re.match(r"^(#{1,6})\s+", line.strip())
+            if m and len(m.group(1)) <= level:
                 break
-            if n["type"] == "table":
-                for row in n["rows"]:
-                    parts.append("| " + " | ".join(row) + " |")
-            elif n["type"] == "code":
-                parts.append(f"```{n['lang']}")
-                parts.append(n["content"])
-                parts.append("```")
-            else:
-                parts.append(n.get("text", ""))
-        return "\n".join(parts)
+            parts.append(line)
+        return "\n".join(parts).strip()
 
     def table_after_heading(self, header_pattern: str) -> Optional[List[List[str]]]:
         """在匹配 header_pattern 的 heading 后找到第一个 table"""
@@ -190,6 +185,20 @@ class MarkdownExtractor:
             if found and n["type"] == "heading" and n["level"] <= 2:
                 break
         return None
+
+    def all_tables_after_heading(self, header_pattern: str) -> List[List[List[str]]]:
+        """在匹配 header_pattern 的 heading 后找到所有 table，直到同级或更高级 heading"""
+        found = False
+        tables: List[List[List[str]]] = []
+        for n in self.nodes:
+            if n["type"] == "heading" and re.search(header_pattern, n["text"]):
+                found = True
+                continue
+            if found and n["type"] == "heading" and n["level"] <= 2:
+                break
+            if found and n["type"] == "table":
+                tables.append(n["rows"])
+        return tables
 
     def ids_in_section(self, header_pattern: str, id_pattern: Optional[str] = None) -> Set[str]:
         """从指定章节中提取编号"""
@@ -1040,6 +1049,100 @@ class InternalRefRule(Rule):
         return issues
 
 
+class ReverseFeatureRefRule(Rule):
+    """PRD: 反向检查——指定章节中引用的编号是否在 §3 功能需求中存在"""
+
+    def __init__(self, check_id: str, source_section_pattern: str, location_name: str):
+        self.check_id = check_id
+        self.source_section_pattern = source_section_pattern
+        self.location_name = location_name
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+
+        # 1. 从 §3 提取功能编号集合
+        sec3_table = extractor.table_after_heading(r"§3\s+功能需求")
+        feature_ids: Set[str] = set()
+        if sec3_table and len(sec3_table) > 1:
+            for row in sec3_table[1:]:
+                if row and not re.match(r"^:?-+:?$", row[0]):
+                    feature_ids.add(row[0].strip())
+        if not feature_ids:
+            return []
+
+        # 2. 从源章节提取所有编号引用
+        source_text = extractor.section_text(self.source_section_pattern)
+        if not source_text:
+            return []
+
+        # 提取所有编号，然后过滤掉明显不是功能编号的（ERR/PAGE/RULE 前缀）
+        all_refs = set(re.findall(r"\b[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+\b", source_text))
+        non_feature_prefixes = {"ERR", "E", "PAGE", "P", "RULE", "R"}
+        refs = set()
+        for ref in all_refs:
+            first_part = ref.split("-")[0]
+            if first_part not in non_feature_prefixes:
+                refs.add(ref)
+
+        # 3. 报告在 §3 中不存在的引用
+        issues = []
+        for ref in sorted(refs):
+            if ref not in feature_ids:
+                issues.append(Issue(
+                    check_id=self.check_id,
+                    severity="warning",
+                    location=self.location_name,
+                    message=f"{self.location_name} 引用了 §3 中不存在的需求 {ref}"
+                ))
+        return issues
+
+
+class PageStructureRule(Rule):
+    """交互设计: 检查每个页面是否包含指定的必含子节"""
+
+    def __init__(self, check_id: str, required_subsections: List[str], skip_first_page: bool = True):
+        self.check_id = check_id
+        self.required_subsections = required_subsections
+        self.skip_first_page = skip_first_page
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+
+        # 收集所有一级章节（页面）
+        pages = []
+        for i, n in enumerate(extractor.nodes):
+            if n["type"] == "heading" and n["level"] == 1:
+                pages.append((i, n["text"]))
+
+        if self.skip_first_page and len(pages) > 1:
+            pages = pages[1:]
+
+        issues = []
+        for page_idx, page_title in pages:
+            # 收集该页面下的所有子节标题（level >= 2）
+            subsections: List[str] = []
+            for n in extractor.nodes[page_idx + 1:]:
+                if n["type"] == "heading" and n["level"] <= 1:
+                    break
+                if n["type"] == "heading":
+                    subsections.append(n["text"])
+
+            for required in self.required_subsections:
+                found = any(required in sub for sub in subsections)
+                if not found:
+                    issues.append(Issue(
+                        check_id=self.check_id,
+                        severity="blocking",
+                        location=f"页面 {page_title}",
+                        message=f"页面 {page_title} 缺少必含子节: {required}"
+                    ))
+        return issues
+
+
 class SVGExistRule(Rule):
     """交互设计: 检查每个页面是否包含 SVG 线框图"""
 
@@ -1265,6 +1368,202 @@ class StateStyleExistRule(Rule):
         return issues
 
 
+class InterfaceInventoryMatchRule(Rule):
+    """技术方案: 检查 §13 接口清单与 §4 接口设计是否一一对应"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+
+        sec4_interfaces = self._extract_sec4_interfaces(extractor)
+        sec13_interfaces = self._extract_sec13_interfaces(extractor)
+
+        if not sec4_interfaces and not sec13_interfaces:
+            return []
+
+        issues = []
+        missing_in_13 = sec4_interfaces - sec13_interfaces
+        for method, path in missing_in_13:
+            issues.append(Issue(
+                check_id=self.check_id, severity="blocking",
+                location="接口一致性",
+                message=f"§4 接口设计中的 {method} {path} 在 §13 接口清单中未找到"
+            ))
+
+        extra_in_13 = sec13_interfaces - sec4_interfaces
+        for method, path in extra_in_13:
+            issues.append(Issue(
+                check_id=self.check_id, severity="blocking",
+                location="接口一致性",
+                message=f"§13 接口清单中的 {method} {path} 在 §4 接口设计中未找到"
+            ))
+        return issues
+
+    def _extract_sec4_interfaces(self, extractor: MarkdownExtractor) -> Set[Tuple[str, str]]:
+        interfaces: Set[Tuple[str, str]] = set()
+        tables = extractor.all_tables_after_heading(r"§4\s+接口设计")
+        for table in tables:
+            if not table or len(table) < 2:
+                continue
+            first_col = [row[0].strip() for row in table if row]
+            is_vertical = any(v in ("URL", "路径", "方法", "功能") for v in first_col)
+            if is_vertical:
+                url = method = ""
+                for row in table:
+                    if len(row) < 2:
+                        continue
+                    field = row[0].strip()
+                    value = row[1].strip()
+                    # 跳过分隔符行
+                    if re.match(r"^:?-+:?$", field) or re.match(r"^:?-+:?$", value):
+                        continue
+                    if field in ("URL", "路径"):
+                        url = value
+                    elif field == "方法":
+                        method = value
+                if url:
+                    m = re.match(r"[`\"']?([A-Z]+)\s+(\S+)[`\"']?", url)
+                    if m:
+                        method = m.group(1)
+                        path = m.group(2).strip("`\"'")
+                    else:
+                        path = url.strip("`\"'")
+                    if path:
+                        interfaces.add((method or "?", path))
+            else:
+                header = [c.strip() for c in table[0]]
+                method_idx = self._idx(header, ["方法", "HTTP 方法"])
+                path_idx = self._idx(header, ["URL", "路径", "接口路径"])
+                if method_idx is not None and path_idx is not None:
+                    for row in table[1:]:
+                        if len(row) <= max(method_idx, path_idx):
+                            continue
+                        if re.match(r"^:?-+:?$", row[0]):
+                            continue
+                        method = row[method_idx].strip().strip("`\"'")
+                        path = row[path_idx].strip().strip("`\"'")
+                        if path:
+                            interfaces.add((method, path))
+        return interfaces
+
+    def _extract_sec13_interfaces(self, extractor: MarkdownExtractor) -> Set[Tuple[str, str]]:
+        interfaces: Set[Tuple[str, str]] = set()
+        table = extractor.table_after_heading(r"§13\s+接口清单")
+        if not table or len(table) < 2:
+            return interfaces
+        header = [c.strip() for c in table[0]]
+        method_idx = self._idx(header, ["方法", "HTTP 方法"])
+        path_idx = self._idx(header, ["路径", "URL", "接口路径"])
+        if method_idx is None or path_idx is None:
+            return interfaces
+        for row in table[1:]:
+            if len(row) <= max(method_idx, path_idx):
+                continue
+            if re.match(r"^:?-+:?$", row[0]):
+                continue
+            method = row[method_idx].strip().strip("`\"'")
+            path = row[path_idx].strip().strip("`\"'")
+            if path:
+                interfaces.add((method, path))
+        return interfaces
+
+    @staticmethod
+    def _idx(header: List[str], candidates: List[str]) -> Optional[int]:
+        for c in candidates:
+            if c in header:
+                return header.index(c)
+        return None
+
+
+class TableFieldInterfaceRefRule(Rule):
+    """技术方案: 检查 §3 数据模型中的表字段是否在 §4 接口设计中被引用"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+
+        # 1. 从 §3 的所有表格中提取字段名
+        table_fields: List[str] = []
+        tables = extractor.all_tables_after_heading(r"§3\s+数据模型")
+        for table in tables:
+            if not table or len(table) < 2:
+                continue
+            header = [c.strip() for c in table[0]]
+            field_idx = None
+            for cand in ["字段名", "参数名", "名称", "字段"]:
+                if cand in header:
+                    field_idx = header.index(cand)
+                    break
+            if field_idx is None:
+                field_idx = 0
+            for row in table[1:]:
+                if len(row) <= field_idx:
+                    continue
+                field = row[field_idx].strip()
+                if field and not re.match(r"^:?-+:?$", field):
+                    table_fields.append(field)
+
+        if not table_fields:
+            return []
+
+        # 2. 获取 §4 的文本
+        sec4_text = extractor.section_text(r"§4\s+接口设计")
+        if not sec4_text:
+            return []
+
+        # 3. 检查每个字段是否在 §4 中出现
+        issues = []
+        for field in table_fields:
+            pattern = r"\b" + re.escape(field) + r"\b"
+            if not re.search(pattern, sec4_text):
+                issues.append(Issue(
+                    check_id=self.check_id,
+                    severity="warning",
+                    location="数据-接口映射",
+                    message=f"§3 表字段 {field} 在 §4 接口设计中未出现"
+                ))
+        return issues
+
+
+class ExceptionInterfaceRefRule(Rule):
+    """技术方案: 检查 §7 异常处理中的错误码是否在 §4 接口设计中有对应"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+
+        sec7_text = extractor.section_text(r"§7\s+异常处理")
+        sec4_text = extractor.section_text(r"§4\s+接口设计")
+        if not sec7_text or not sec4_text:
+            return []
+
+        err_pattern = r"\b(ERR-[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+)\b"
+        sec7_errors = set(re.findall(err_pattern, sec7_text))
+        sec4_errors = set(re.findall(err_pattern, sec4_text))
+
+        issues = []
+        for err in sorted(sec7_errors - sec4_errors):
+            issues.append(Issue(
+                check_id=self.check_id,
+                severity="warning",
+                location="异常-接口映射",
+                message=f"§7 异常处理中的错误码 {err} 在 §4 接口设计中未出现"
+            ))
+        return issues
+
+
 class TechAuditFieldRule(Rule):
     """技术方案: 检查数据模型中是否包含审计字段"""
 
@@ -1315,6 +1614,72 @@ class TechInterfaceElementsRule(Rule):
         return issues
 
 
+class TestCaseFeatureRefRule(Rule):
+    """测试方案: 检查 §1 每个用例是否标注了功能点和验收标准编号"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        tables = extractor.all_tables_after_heading(r"§1\s+功能测试")
+        issues = []
+        for table in tables:
+            if not table or len(table) < 2:
+                continue
+            header = [c.strip() for c in table[0]]
+            fp_idx = next((i for i, h in enumerate(header) if "功能点" in h), None)
+            ac_idx = next((i for i, h in enumerate(header) if "验收标准" in h), None)
+            for row in table[1:]:
+                if not row or re.match(r"^:?-+:?$", row[0]):
+                    continue
+                row_id = row[0].strip() if row else "未知"
+                if fp_idx is not None and fp_idx < len(row):
+                    val = row[fp_idx].strip()
+                    if not val or val in ("-", "—", "", "无"):
+                        issues.append(Issue(
+                            check_id=self.check_id, severity="warning",
+                            location="功能测试用例",
+                            message=f"用例 {row_id} 缺少功能点编号"
+                        ))
+                if ac_idx is not None and ac_idx < len(row):
+                    val = row[ac_idx].strip()
+                    if not val or val in ("-", "—", "", "无"):
+                        issues.append(Issue(
+                            check_id=self.check_id, severity="warning",
+                            location="功能测试用例",
+                            message=f"用例 {row_id} 缺少验收标准编号"
+                        ))
+        return issues
+
+
+class TestExceptionCoverageRule(Rule):
+    """测试方案: 检查 §2 异常测试是否覆盖指定的异常类型"""
+
+    def __init__(self, check_id: str, exception_types: List[str]):
+        self.check_id = check_id
+        self.exception_types = exception_types
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+        extractor = MarkdownExtractor(data.raw_text)
+        sec2_text = extractor.section_text(r"§2\s+异常测试")
+        if not sec2_text:
+            return []
+        issues = []
+        for exc_type in self.exception_types:
+            if exc_type not in sec2_text:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="warning",
+                    location="异常测试覆盖",
+                    message=f"未覆盖异常类型: {exc_type}"
+                ))
+        return issues
+
+
 class TestCaseFormatRule(Rule):
     """测试: 检查用例表格是否包含指定列"""
 
@@ -1355,6 +1720,8 @@ PRD_RULES: List[Rule] = [
     FeatureTableColumnsRule("P-A7", ["功能编号", "故事编号", "功能名称", "优先级", "交互方式"]),
     IdDuplicateRule("P-A6"),
     IdContinuityRule("P-A6"),
+    ReverseFeatureRefRule("P-A8", r"§6\s+业务规则", "§6 业务规则"),
+    ReverseFeatureRefRule("P-A10", r"§7\s+错误处理", "§7 错误处理"),
     InternalRefRule("P-A13"),
     AcceptanceFeatureRefRule("P-A12"),
     P0AcceptanceRule("P-A14"),
@@ -1365,6 +1732,9 @@ PRD_RULES: List[Rule] = [
 ]
 
 INTERACTION_RULES: List[Rule] = [
+    PageStructureRule("I-A2", [
+        "页面结构", "组件交互", "状态机", "页面流程", "异常处理", "与 PRD 对应",
+    ]),
     SVGExistRule("I-A3"),
     StateMatrixRule("I-A5", expected_cols=6),
     StateMatrixRule("I-A6", expected_cols=7, col_name="力学约束"),
@@ -1402,6 +1772,9 @@ TECH_RULES: List[Rule] = [
     ]),
     TechAuditFieldRule("T-A2", ["created_at", "updated_at", "creator_id", "updater_id", "created_by", "updated_by"]),
     TechInterfaceElementsRule("T-A4", ["URL", "方法", "请求参数", "响应结构", "错误码"]),
+    InterfaceInventoryMatchRule("T-A9"),
+    TableFieldInterfaceRefRule("T-A10"),
+    ExceptionInterfaceRefRule("T-A11"),
     TableFormatRule("T-A12"),
     BrokenInternalLinkRule("T-A13"),
     BidirectionalMappingRule("T-B1", forward_severity="warning", reverse_severity="warning"),
@@ -1415,6 +1788,10 @@ TEST_RULES: List[Rule] = [
         "安全测试", "兼容性测试", "覆盖检查报告", "回归测试策略",
     ]),
     TestCaseFormatRule("S-A2", ["前置条件", "测试步骤", "预期结果"]),
+    TestCaseFeatureRefRule("S-A3"),
+    TestExceptionCoverageRule("S-A4", [
+        "参数非法", "权限不足", "数据不存在", "网络异常", "并发冲突", "第三方故障",
+    ]),
     TableFormatRule("S-A11"),
     UpstreamRefRule("S-B9"),
 ]
