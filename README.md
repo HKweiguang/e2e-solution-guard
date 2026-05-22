@@ -52,6 +52,9 @@ python3 scripts/doc-audit.py docs/
 
 # 修改 PRD 后，扫描哪些下游需要同步
 python3 scripts/doc-audit.py docs/需求/{PRD标题}.md --scan-downstream ./docs/
+
+# 运行规则引擎冒烟测试（17 条用例 + 5 个模板验证）
+make test
 ```
 
 ---
@@ -188,7 +191,9 @@ e2e-solution-guard/
 │       ├── audit-procedure.md       # 审计策略
 │       └── product-organization.md  # 产物组织与编号规范
 └── scripts/
-    └── doc-audit.py                 # 一致性审计脚本（标准库 only）
+    ├── doc-audit.py                 # 一致性审计脚本（标准库 only）
+    ├── test_doc_audit.py            # 规则引擎冒烟测试（17 条用例）
+    └── run-tests.sh                 # 测试入口（冒烟测试 + 模板验证）
 ```
 
 ---
