@@ -16,3 +16,6 @@ __pycache__/
 # Logs
 *.log
 .test-project/
+
+# Development tools (not part of skill distribution)
+scripts/dev/

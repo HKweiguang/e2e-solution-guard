@@ -1,7 +1,7 @@
 .PHONY: test audit
 
 test:
-	bash scripts/run-tests.sh
+	bash scripts/dev/run-tests.sh
 
 audit:
 	@for t in prd interaction ui tech test; do \

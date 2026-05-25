@@ -317,6 +317,8 @@ class SectionExistsRule(Rule):
         self.severity = severity
 
     def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
         headings = [s[1] for s in data.sections]
         issues = []
         for pattern in self.patterns:
@@ -395,9 +397,10 @@ class IdDuplicateRule(Rule):
         self.id_pattern = id_pattern
 
     def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
-        ids = data.ids
         if self.id_pattern:
-            ids = set(re.findall(self.id_pattern, data.raw_text))
+            ids = re.findall(self.id_pattern, data.raw_text)
+        else:
+            ids = list(data.ids)
         seen: Set[str] = set()
         issues = []
         for id_str in ids:
@@ -1136,10 +1139,10 @@ class PageStructureRule(Rule):
             return []
         extractor = MarkdownExtractor(data.raw_text)
 
-        # 收集所有一级章节（页面）
+        # 收集所有页面章节（模板格式：## §N {页面编号} {页面名}）
         pages = []
         for i, n in enumerate(extractor.nodes):
-            if n["type"] == "heading" and n["level"] == 1:
+            if n["type"] == "heading" and n["level"] == 2:
                 pages.append((i, n["text"]))
 
         if self.skip_first_page and len(pages) > 1:
@@ -1211,10 +1214,10 @@ class PagePrefixConsistencyRule(Rule):
             return []
         extractor = MarkdownExtractor(data.raw_text)
 
-        # 从一级章节标题中提取页面编号
+        # 从页面章节标题中提取页面编号（模板格式：## §N {页面编号} {页面名}）
         page_ids: List[str] = []
         for n in extractor.nodes:
-            if n["type"] == "heading" and n["level"] == 1:
+            if n["type"] == "heading" and n["level"] == 2:
                 m = re.search(r"\b([A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+)\b", n["text"])
                 if m:
                     page_ids.append(m.group(1))
@@ -1532,6 +1535,8 @@ class UIClassConsistencyRule(Rule):
         self.check_id = check_id
 
     def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
         extractor = MarkdownExtractor(data.raw_text)
         # 从所有表格中提取 CSS 类名（交互状态列和 CSS 类/伪类列）
         map_classes = set()
@@ -1586,6 +1591,8 @@ class StateStyleExistRule(Rule):
         self.required_states = required_states
 
     def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
         css = ""
         for lang, content in data.code_blocks:
             if lang in ("css", "", "html") or "style" in lang.lower():
@@ -1894,10 +1901,13 @@ class TechInterfaceElementsRule(Rule):
             return []
         extractor = MarkdownExtractor(data.raw_text)
         sec4_text = extractor.section_text(r"§4\s+接口设计")
-        # 简单检查：接口定义通常以反引号包裹的 HTTP 方法开头
-        api_blocks = re.findall(r"`(GET|POST|PUT|DELETE|PATCH)\s+(/[\w/{}:.\-]+)`([\s\S]*?)(?=```|$|`(?:GET|POST|PUT|DELETE|PATCH))", sec4_text)
         issues = []
+        found_any = False
+
+        # 1. 反引号格式接口定义
+        api_blocks = re.findall(r"`(GET|POST|PUT|DELETE|PATCH)\s+(/[\w/{}:.\-]+)`([\s\S]*?)(?=```|$|`(?:GET|POST|PUT|DELETE|PATCH))", sec4_text)
         for method, path, block in api_blocks:
+            found_any = True
             for elem in self.required_elements:
                 if elem not in block:
                     issues.append(Issue(
@@ -1905,6 +1915,50 @@ class TechInterfaceElementsRule(Rule):
                         location=f"接口 {method} {path}",
                         message=f"缺少要素: {elem}"
                     ))
+
+        # 2. 竖排表格格式接口定义
+        tables = extractor.all_tables_after_heading(r"§4\s+接口设计")
+        for table in tables:
+            if not table or len(table) < 2:
+                continue
+            first_col = [row[0].strip() for row in table if row]
+            # 识别竖排接口定义表：第一列包含 "URL" 或 "路径"
+            if not any(v in ("URL", "路径") for v in first_col):
+                continue
+            url = method = ""
+            has_elements: Dict[str, bool] = {e: False for e in self.required_elements}
+            for row in table:
+                if len(row) < 2:
+                    continue
+                field = row[0].strip()
+                value = row[1].strip()
+                if field in ("URL", "路径"):
+                    found_any = True
+                    m = re.match(r"[`\"']?([A-Z]+)\s+(\S+)[`\"']?", value)
+                    if m:
+                        method = m.group(1)
+                        path = m.group(2).strip("`\"'")
+                    else:
+                        path = value.strip("`\"'")
+                for elem in self.required_elements:
+                    if field == elem:
+                        has_elements[elem] = True
+            if url or path:
+                for elem, found in has_elements.items():
+                    if not found:
+                        issues.append(Issue(
+                            check_id=self.check_id, severity="warning",
+                            location=f"接口 {method} {path}",
+                            message=f"表格格式接口定义缺少要素: {elem}"
+                        ))
+
+        # 3. 如果 §4 存在但完全未找到接口定义，给出提示
+        if sec4_text and not found_any:
+            issues.append(Issue(
+                check_id=self.check_id, severity="info",
+                location="§4 接口设计",
+                message="未识别到任何接口定义（支持反引号格式或竖排表格格式），请确认格式是否符合规范"
+            ))
         return issues
 
 
@@ -1990,10 +2044,14 @@ class TestCaseFormatRule(Rule):
             if not table or not table[0]:
                 continue
             header = [c.strip() for c in table[0]]
-            # 识别测试用例表：包含"前置条件"或"测试步骤"
+            # 识别功能测试用例表：包含"前置条件"或"测试步骤"
+            # 异常测试用例表使用"触发条件"替代"前置条件"，豁免"前置条件"列检查
+            is_exception_table = any("异常场景" in h or "异常类型" in h for h in header)
             if any("前置条件" in h or "测试步骤" in h for h in header):
                 for col in self.required_cols:
                     if col not in header:
+                        if is_exception_table and col == "前置条件":
+                            continue
                         issues.append(Issue(
                             check_id=self.check_id, severity="blocking",
                             location=f"测试用例表 #{idx}",
@@ -2868,15 +2926,34 @@ class TopLevelEnumRule(Rule):
         if not allowed:
             return []
 
-        # 从 §5 数据模型表格的"约束"列中提取 ENUM(...)
+        # 从 §5 数据模型表格的"约束"列中提取 ENUM(...)，以及"业务说明"列中提取 "取值：..."
         extractor = MarkdownExtractor(data.raw_text)
-        constraints = extractor.table_column_values(r"§5\s+数据模型", "约束")
         issues = []
+
+        # 1. 提取 ENUM(...) 格式
+        constraints = extractor.table_column_values(r"§5\s+数据模型", "约束")
         for constraint in constraints:
             enum_match = re.search(r"ENUM\s*\(\s*([^)]+)\s*\)", constraint, re.IGNORECASE)
             if enum_match:
                 vals = [v.strip().strip("'\"") for v in enum_match.group(1).split(",")]
                 for v in vals:
+                    if v and v not in allowed:
+                        issues.append(Issue(
+                            check_id=self.check_id, severity="warning",
+                            location="§5 数据模型",
+                            message=f"枚举值 '{v}' 未在顶层定义或本产物 §5 中声明"
+                        ))
+
+        # 2. 提取 "取值：VALUE1 / VALUE2" 格式（常见于业务说明列）
+        descriptions = extractor.table_column_values(r"§5\s+数据模型", "业务说明")
+        for desc in descriptions:
+            val_match = re.search(r"取值[：:]\s*([\w\s/、，,]+)", desc)
+            if val_match:
+                vals = [v.strip() for v in re.split(r"[/、，,]", val_match.group(1)) if v.strip()]
+                for v in vals:
+                    # 跳过说明文字（如"默认 NORMAL"、"见项目 PRD-顶层定义"）
+                    if re.search(r"默认|见项目|引用|详见", v):
+                        continue
                     if v and v not in allowed:
                         issues.append(Issue(
                             check_id=self.check_id, severity="warning",
@@ -3426,11 +3503,11 @@ PRD_RULES: List[Rule] = [
         "数据模型", "业务规则", "错误处理", "验收标准", "依赖与范围", "附件",
     ]),
     FeatureTableColumnsRule("P-A7", ["功能编号", "故事编号", "功能名称", "优先级", "交互方式", "技术实现单元", "业务规则", "验收标准"]),
-    DataModelTableColumnsRule("P-A8", ["字段", "类型", "约束", "说明"]),
+    DataModelTableColumnsRule("P-A11", ["字段", "业务类型", "约束", "业务说明"]),
     ErrorCodeTableColumnsRule("P-A9", ["错误码", "触发场景", "前端提示"]),
     IdFormatConsistencyRule("P-A5"),
     IdDuplicateRule("P-A6"),
-    IdContinuityRule("P-A6"),
+    IdContinuityRule("P-A6b"),
     ReverseFeatureRefRule("P-A8", r"§6\s+业务规则", "§6 业务规则"),
     ReverseFeatureRefRule("P-A10", r"§7\s+错误处理", "§7 错误处理"),
     InternalRefRule("P-A13"),
@@ -3444,7 +3521,7 @@ PRD_RULES: List[Rule] = [
     UpstreamRefRule("P-B5"),
     TopLevelStateValueRule("P-B1", r"§6\s+业务规则"),
     TopLevelErrorCodeFormatRule("P-B6"),
-    TopLevelIdPrefixRule("P-B2", "功能编号", "功能编号", r"§3\s+功能需求"),
+    TopLevelIdPrefixRule("P-B2a", "功能编号", "功能编号", r"§3\s+功能需求"),
     TopLevelEnumRule("P-B7"),
     ErrorCodeCountMatchRule("P-B8"),
 ]
@@ -3485,7 +3562,7 @@ UI_RULES: List[Rule] = [
     StateStyleExistRule("U-B3", ["hover", "active", "focus", "disabled", "loading", "empty", "error", "success", "skeleton"]),
     PageCoverageRule("U-B1"),
     UpstreamIdExistenceRule("U-B2", r"page-[a-z0-9-]+", "section id"),
-    VersionConsistencyRule("U-B3"),
+    VersionConsistencyRule("U-B3a"),
     ResponsiveBreakpointRule("U-B5"),
     TableFormatRule("U-A12"),
     UpstreamRefRule("U-B7"),
@@ -3505,7 +3582,7 @@ TECH_RULES: List[Rule] = [
     InterfaceFeatureRefRule("T-A5"),
     ExceptionTableColumnsRule("T-A6", ["异常编号", "异常类型", "场景", "触发条件", "技术处理", "用户提示", "错误码"]),
     InterfaceInventoryColumnsRule("T-A7", ["序号", "接口名", "方法", "路径", "对应功能点", "权限", "版本"]),
-    InterfaceInventoryMatchRule("T-A9"),
+    InterfaceInventoryMatchRule("T-A8"),
     TableFieldInterfaceRefRule("T-A10"),
     ExceptionInterfaceRefRule("T-A11"),
     TableFormatRule("T-A12"),
@@ -3538,7 +3615,7 @@ TEST_RULES: List[Rule] = [
     TestExceptionCoverageRule("S-A4", [
         "参数非法", "权限不足", "数据不存在", "网络异常", "并发冲突", "第三方故障",
     ]),
-    PerfTestColumnsRule("S-A5", ["测试项", "性能目标", "测试场景", "测试数据量", "通过标准", "优先级"]),
+    PerfTestColumnsRule("S-A5", ["测试项", "性能目标（引用）", "测试场景", "测试数据量", "通过标准", "优先级"]),
     CoverageReportColumnsRule("S-A6", ["验收标准编号", "验收标准描述", "覆盖用例编号", "状态", "未覆盖原因"]),
     AdmissionCriteriaRule("S-A7", ["代码审查", "单元测试", "构建成功"]),
     InterfaceTestCoverageRule("S-B5"),
