@@ -95,7 +95,6 @@ class MarkdownExtractor:
         self._parse()
 
     def extract(self) -> ExtractedData:
-        self._parse()
         data = ExtractedData(raw_text=self.raw_text)
         data.sections = self._extract_sections()
         data.tables = self._extract_tables()
@@ -757,7 +756,9 @@ class BrokenInternalLinkRule(Rule):
 
 
 class ResponsiveBreakpointRule(Rule):
-    """检查 UI HTML 中的 @media 断点是否与 UI-顶层定义一致"""
+    """检查 UI HTML 中的 @media 断点是否与 UI-顶层定义一致。
+    从上游 UI-顶层定义的 §2.5.5 响应式断点表格「范围」列提取预期断点值。
+    互补规则：UIResponsiveBreakpointValueRule（从顶层定义「断点」列提取）。"""
 
     def __init__(self, check_id: str,
                  upstream_file_hint: str = "ui-top-level",
@@ -1255,11 +1256,18 @@ class PageCoverageRule(Rule):
         if not upstream_data:
             return []
 
-        # 从交互设计提取页面编号
+        # 从交互设计提取页面编号（交互模板页面章节使用 ## 即 level 2 标题）
         upstream_ids: Set[str] = set()
         for n in upstream_data.sections:
             level, title = n
-            if level == 1:
+            if level == 2:
+                m = re.search(r"\b(PAGE-[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+)\b", title)
+                if m:
+                    upstream_ids.add(m.group(1))
+        # 回退：若 level 2 无结果，尝试所有 level
+        if not upstream_ids:
+            for n in upstream_data.sections:
+                level, title = n
                 m = re.search(r"\b(PAGE-[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+)\b", title)
                 if m:
                     upstream_ids.add(m.group(1))
@@ -2552,13 +2560,13 @@ class TestExceptionCompletenessRule(Rule):
         # 从当前测试 §2 提取异常场景/错误码
         extractor = MarkdownExtractor(data.raw_text)
         test_sec2_text = extractor.section_text(r"§2\s+异常测试用例")
-        test_exceptions = set(re.findall(r"ERR-[A-Z]+-\d+", test_sec2_text))
+        test_exceptions = set(re.findall(r"ERR-[A-Z]+(?:-[A-Z]+)*-\d+", test_sec2_text))
 
         # 从上游 Tech §7 提取异常/错误码
         tech_exceptions: Set[str] = set()
         for up_data in ctx.upstream_docs.values():
             tech_text = MarkdownExtractor(up_data.raw_text).section_text(r"§7\s+异常处理")
-            tech_exceptions.update(re.findall(r"ERR-[A-Z]+-\d+", tech_text))
+            tech_exceptions.update(re.findall(r"ERR-[A-Z]+(?:-[A-Z]+)*-\d+", tech_text))
 
         issues = []
         missing = tech_exceptions - test_exceptions
@@ -2621,10 +2629,10 @@ class InteractionJumpTargetRule(Rule):
     def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
         if ctx.is_template:
             return []
-        # 提取本文档中所有页面编号
+        # 提取本文档中所有页面编号（限定 PAGE- 前缀）
         local_pages = set()
         for level, text in data.sections:
-            m = re.search(r"[A-Z]+(?:-[A-Z]+)*-\d+", text)
+            m = re.search(r"\b(PAGE-[A-Z]+(?:-[A-Z]+)*-\d+)", text)
             if m:
                 local_pages.add(m.group(0))
 
@@ -2640,7 +2648,7 @@ class InteractionJumpTargetRule(Rule):
             for target in re.findall(pattern, data.raw_text):
                 target = target.strip()
                 # 如果目标是页面编号格式，检查是否在本地
-                if re.match(r"[A-Z]+(?:-[A-Z]+)*-\d+", target) and target not in local_pages:
+                if re.match(r"PAGE-[A-Z]+(?:-[A-Z]+)*-\d+", target) and target not in local_pages:
                     issues.append(Issue(
                         check_id=self.check_id, severity="warning",
                         location="页面跳转",
@@ -2736,8 +2744,20 @@ class TopLevelStateValueRule(Rule):
         allowed = _get_top_level_column_values(ctx, "状态值")
         if not allowed:
             return []
-        # 同时允许本产物 §5 中声明的状态值
-        local_states = set(MarkdownExtractor(data.raw_text).table_column_values(r"§5\s+数据模型", "状态值"))
+        # 同时允许本产物 §5 中声明的状态值（从 业务说明/约束 列提取"取值：X/Y/Z"或 ENUM(...) 中的值）
+        extractor = MarkdownExtractor(data.raw_text)
+        local_states = set(extractor.table_column_values(r"§5\s+数据模型", "状态值"))
+        if not local_states:
+            descriptions = extractor.table_column_values(r"§5\s+数据模型", "业务说明")
+            for desc in descriptions:
+                m = re.search(r"取值[：:]\s*([\w\s/、，,]+)", desc)
+                if m:
+                    local_states.update(v.strip() for v in re.split(r"[/、，,]", m.group(1)) if v.strip())
+            constraints = extractor.table_column_values(r"§5\s+数据模型", "约束")
+            for constraint in constraints:
+                m = re.search(r"ENUM\s*\(\s*([^)]+)\s*\)", constraint, re.IGNORECASE)
+                if m:
+                    local_states.update(v.strip().strip("'\"") for v in m.group(1).split(","))
         allowed.update(local_states)
 
         extractor = MarkdownExtractor(data.raw_text)
@@ -2999,7 +3019,8 @@ class PRDErrorCodeToTechRule(Rule):
 
 
 class PRDEntityToTechTableRule(Rule):
-    """Tech: PRD §5 每个实体应在技术方案 §3 中有对应表"""
+    """Tech: PRD §5 每个实体应在技术方案 §3 中有对应表。
+    实体名称从 PRD §5 中的表间标题（如 ### 工单表）或表格的「实体」/「表名」列提取。"""
 
     def __init__(self, check_id: str):
         self.check_id = check_id
@@ -3009,14 +3030,25 @@ class PRDEntityToTechTableRule(Rule):
             return []
         prd_entities: Set[str] = set()
         for up_data in ctx.upstream_docs.values():
-            prd_entities.update(MarkdownExtractor(up_data.raw_text).table_column_values(r"§5\s+数据模型", "实体"))
+            extractor = MarkdownExtractor(up_data.raw_text)
+            # 从 §5 中提取实体名称：优先从表间标题提取（如 ### 工单表）
+            sec5_text = extractor.section_text(r"§5\s+数据模型")
+            for m in re.finditer(r"#{2,4}\s*([^\n#]+?)(?:表|实体)", sec5_text):
+                entity = m.group(1).strip()
+                if entity:
+                    prd_entities.add(entity)
+            # 回退：尝试表格中「实体」「表名」「实体名称」列
+            for col in ("实体", "表名", "实体名称"):
+                vals = extractor.table_column_values(r"§5\s+数据模型", col)
+                if vals:
+                    prd_entities.update(v for v in vals if v)
         if not prd_entities:
             return []
 
         tech_tables: Set[str] = set()
         extractor = MarkdownExtractor(data.raw_text)
         tech_tables.update(extractor.table_column_values(r"§3\s+数据模型", "表名"))
-        # 也尝试从 heading 中提取表名（如 "### 用户表"）
+        # 也尝试从 heading 中提取表名（如 "### 工单表 (ticket)"）
         for level, title in data.sections:
             if "表" in title:
                 tech_tables.add(title.replace("#", "").strip())
@@ -3344,9 +3376,15 @@ class InteractionJumpToTechInterfaceRule(Rule):
 
         issues = []
         for jump in jumps:
+            if len(jump) < 3:
+                continue
             found = False
             for url in tech_urls:
-                if url and (jump.lower() in url.lower() or url.lower() in jump.lower()):
+                if not url:
+                    continue
+                # 用 / 分割路径段，精确匹配跳转目标中的路径关键词
+                url_parts = [p.lower() for p in url.strip("/").split("/") if p]
+                if jump.lower() in url_parts or any(p in jump.lower() for p in url_parts if len(p) >= 3):
                     found = True
                     break
             if not found:
@@ -3432,7 +3470,9 @@ class TechCacheKeyNamingRule(Rule):
 
 
 class UIResponsiveBreakpointValueRule(Rule):
-    """UI: @media 断点值应与 UI-顶层定义一致"""
+    """UI: @media 断点值应与 UI-顶层定义一致。
+    从顶层定义文档的「断点」/「breakpoint」列提取预期值。
+    互补规则：ResponsiveBreakpointRule（从 §2.5.5 响应式断点表格「范围」列提取）。"""
 
     def __init__(self, check_id: str):
         self.check_id = check_id
@@ -3516,7 +3556,6 @@ PRD_RULES: List[Rule] = [
     TableFormatRule("P-A15"),
     BrokenInternalLinkRule("P-A16"),
     CrossDocTerminologyRule("P-B2"),
-    PRDCoverageConsistencyRule("P-B3"),
     VersionConsistencyRule("P-B4"),
     UpstreamRefRule("P-B5"),
     TopLevelStateValueRule("P-B1", r"§6\s+业务规则"),
@@ -3590,7 +3629,7 @@ TECH_RULES: List[Rule] = [
     BidirectionalMappingRule("T-B1", forward_severity="warning", reverse_severity="warning"),
     CrossDocTerminologyRule("T-B2"),
     EnumConsistencyRule("T-B3"),
-    UpstreamIdExistenceRule("T-B4", r"ERR-[A-Z]+-\d+", "错误码"),
+    UpstreamIdExistenceRule("T-B4", r"ERR-[A-Z]+(?:-[A-Z]+)*-\d+", "错误码"),
     VersionConsistencyRule("T-B5"),
     TechFieldToApiRefRule("T-B6"),
     TechPerformanceAlignmentRule("T-B7"),
@@ -3603,6 +3642,7 @@ TECH_RULES: List[Rule] = [
     InteractionJumpToTechInterfaceRule("T-B14"),
     TechCacheKeyNamingRule("T-B15"),
     UpstreamRefRule("T-B13"),
+    SectionExistsRule("T-A15", ["模块间服务契约"], severity="warning"),
 ]
 
 TEST_RULES: List[Rule] = [
@@ -3667,9 +3707,10 @@ class AuditEngine:
         return MarkdownExtractor(self.raw_text).extract()
 
     def _detect_template(self) -> bool:
-        """检测是否为产物模板（包含示例说明，非实际产物）"""
+        """检测是否为产物模板（包含示例说明，非实际产物）。
+        需同时命中至少 2 个标记，降低真实产物误判为模板的风险。"""
         markers = ["填写示例", "不要机械套用", "常见陷阱", "产物模板"]
-        return any(m in self.raw_text for m in markers)
+        return sum(1 for m in markers if m in self.raw_text) >= 2
 
     def _load_upstream(self, upstream_paths: List[str]):
         for up_path in upstream_paths:
@@ -3695,6 +3736,12 @@ class AuditEngine:
         self.ctx.is_template = self._detect_template()
         rules = RULE_SETS.get(self.doc_type, [])
         issues: List[Issue] = []
+        if self.ctx.is_template:
+            issues.append(Issue(
+                check_id="INFO-TEMPLATE", severity="info",
+                location="产物类型检测",
+                message=f"检测到产物模板标记，已豁免 {len(rules)} 项机械检查规则（本文件为 Skill 内部模板，非实际项目产物）"
+            ))
         for rule in rules:
             issues.extend(rule.check(self.data, self.ctx))
 

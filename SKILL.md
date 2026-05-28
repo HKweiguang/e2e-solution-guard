@@ -12,8 +12,9 @@ description: >
   cross-references, or error-code mappings, (4) standardize, align, or check consistency
   between documents or between code and documents, (5) ensure changes to upstream docs
   are propagated to downstream docs, or identify missing downstream updates.
-  Loads document templates on demand via workflow steps, runs `scripts/doc-audit.py` via read-only subagent for mechanical
-  checks, and enforces read-only subagent verification.
+   Loads document templates on demand via workflow steps, runs `scripts/doc-audit.py` for mechanical
+   checks, and performs semantic audit (execution mode depends on model context window, see
+   `references/workflow/audit-procedure.md`).
 ---
 
 # e2e-solution-guard
@@ -58,7 +59,7 @@ e2e-solution-guard 的核心不是"写文档"，而是**管理从想法到代码
 | 生成或修改任何产物 | `references/workflow/document-workflow.md` | 阶段1-3完整流程：前置检查、加载上下文、影响评估、生成/修改、审计 |
 | 发现上游缺陷需回改 | `references/workflow/change-propagation.md` | 回改触发、下游扫描、级联修改、重新验证 |
 | 代码已实现，验证一致性 | `references/workflow/code-verification.md` | 产物→代码闭环：定位代码、七项对比、产出审计报告 |
-| 启动审计 | `references/workflow/audit-procedure.md` | subagent 审计方法、语义审计执行步骤、脚本与 AI 分工边界、配置建议 |
+| 启动审计 | `references/workflow/audit-procedure.md` | 审计执行策略（模型上下文决定用 subagent 还是主会话）、语义审计执行步骤、脚本与 AI 分工边界、配置建议 |
 | 需要具体步骤模板 | `references/steps/*-step.md` 与 `references/steps/code-audit-report.md` | PRD/交互/UI/技术/测试的产物结构和写作要求；代码审计报告模板 |
 | 需要顶层定义模板 | `references/top-level/*-top-level-template.md` | 全局规范模板（生成项目版本时参考） |
 | 生成/修改后自查 | `references/rules/consistency-rules.md` | 编号连续性、双向引用、术语一致性、顶层定义交叉对齐等硬规则 |
@@ -79,7 +80,7 @@ e2e-solution-guard 的核心不是"写文档"，而是**管理从想法到代码
 - **理性独立，不迎合，遇冲突/模糊必停**：基于专业判断分析用户需求，发现不合理、有风险、与最佳实践冲突或与现有方案矛盾的地方，必须明确提出质疑和建议。遇到需求不明确、规范冲突、技术不可行等情况，禁止用默认假设继续
 - **缺少前置定义禁止继续**：当前工作依赖的前置规范（产物/接口/配置/顶层定义）缺失时，暂停并询问用户是否补全。用户拒绝 → **立即停止**
 - **逐步推进，一次只推进一个单元**：当前分析、产物或代码单元完成并确认无异常后，再开始下一个。禁止一次性批量输出多份产物或大范围改动
-- **脚本与 AI 分工有边界，不可一条路走到黑**：机械检查（格式、存在性、连续性、编号映射）归 `doc-audit.py`，语义判断（正确性、合理性、满足度）归 AI subagent。扩展检查项时必须先对照 `references/workflow/audit-procedure.md` 中的"脚本与 AI 的分工边界"判断归属，禁止为了让脚本覆盖而降级规则精度（如把"映射正确"降级为"字段名存在"），禁止让 AI 做穷举性存在检查
+- **脚本与 AI 分工有边界，不可一条路走到黑**：机械检查（格式、存在性、连续性、编号映射）归 `doc-audit.py`，语义判断（正确性、合理性、满足度）归 AI（执行方式取决于模型上下文，参见 `references/workflow/audit-procedure.md`）。扩展检查项时必须先对照 `references/workflow/audit-procedure.md` 中的"脚本与 AI 的分工边界"判断归属，禁止为了让脚本覆盖而降级规则精度（如把"映射正确"降级为"字段名存在"），禁止让 AI 做穷举性存在检查
 
 ---
 
