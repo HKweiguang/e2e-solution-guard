@@ -194,8 +194,11 @@ e2e-solution-guard/
 │   │   ├── interaction-top-level-template.md
 │   │   ├── ui-top-level-template.md
 │   │   └── tech-top-level-template.md
-│   ├── rules/                       # 一致性硬规则
-│   │   └── consistency-rules.md
+│   ├── examples/                    # 填写示例与常见陷阱
+│   │   ├── prd-examples.md
+│   │   ├── interaction-examples.md
+│   │   ├── tech-examples.md
+│   │   └── test-examples.md
 │   └── workflow/                    # 执行流程
 │       ├── idea-evaluation.md       # 想法评估
 │       ├── document-workflow.md     # 产物生成/修改

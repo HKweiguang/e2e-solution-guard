@@ -1663,6 +1663,9 @@ class InterfaceInventoryMatchRule(Rule):
             if not table or len(table) < 2:
                 continue
             first_col = [row[0].strip() for row in table if row]
+            # 跳过接口汇总表（表头含"接口编号""序号"等）
+            if any(v in ("接口编号", "序号", "接口名") for v in first_col):
+                continue
             is_vertical = any(v in ("URL", "路径", "方法", "功能") for v in first_col)
             if is_vertical:
                 url = method = ""
@@ -1703,7 +1706,7 @@ class InterfaceInventoryMatchRule(Rule):
                             interfaces.add((method, path))
         return interfaces
 
-    def _extract_sec13_interfaces(self, extractor: MarkdownExtractor) -> Set[Tuple[str, str]]:
+    def _extract_sec4_summary_interfaces(self, extractor: MarkdownExtractor) -> Set[Tuple[str, str]]:
         interfaces: Set[Tuple[str, str]] = set()
         table = extractor.table_after_heading(r"§4\s+接口设计")
         if not table or len(table) < 2:
@@ -3614,10 +3617,10 @@ TECH_RULES: List[Rule] = [
     ]),
     TechAuditFieldRule("T-A2"),
     TechInterfaceElementsRule("T-A4", ["URL", "方法", "请求参数", "响应结构", "错误码", "版本号"]),
-    TableColumnCompletenessRule("T-A3", ["字段", "类型", "约束", "索引", "对应 PRD 字段", "设计说明"]),
+    TableColumnCompletenessRule("T-A3", ["字段", "类型", "约束", "对应 PRD 字段", "说明"]),
     InterfaceFeatureRefRule("T-A5"),
     ExceptionTableColumnsRule("T-A6", ["异常编号", "异常类型", "场景", "触发条件", "技术处理", "用户提示", "错误码"]),
-    InterfaceInventoryColumnsRule("T-A7", ["序号", "接口名", "方法", "路径", "对应功能点", "权限", "版本"]),
+    InterfaceInventoryColumnsRule("T-A7", ["接口编号", "接口名", "方法", "路径", "对应功能点", "权限", "版本"]),
     InterfaceInventoryMatchRule("T-A8"),
     TableFieldInterfaceRefRule("T-A10"),
     ExceptionInterfaceRefRule("T-A11"),
@@ -3673,13 +3676,56 @@ TEST_RULES: List[Rule] = [
 ]
 
 
-RULE_SETS = {
-    "prd": PRD_RULES,
-    "interaction": INTERACTION_RULES,
-    "ui": UI_RULES,
-    "tech": TECH_RULES,
-    "test": TEST_RULES,
+class RuleRegistry:
+    """规则注册表：支持动态注册和按产物类型分组。"""
+
+    _rules: Dict[str, List[Rule]] = {}
+
+    @classmethod
+    def register(cls, doc_type: str, rule: Rule) -> Rule:
+        """注册规则实例到指定产物类型，返回规则实例以便链式调用。"""
+        cls._rules.setdefault(doc_type, []).append(rule)
+        return rule
+
+    @classmethod
+    def get_rules(cls, doc_type: str) -> List[Rule]:
+        return cls._rules.get(doc_type, [])
+
+    @classmethod
+    def list_all(cls) -> Dict[str, List[Rule]]:
+        return dict(cls._rules)
+
+    @classmethod
+    def clear(cls):
+        cls._rules.clear()
+
+
+# 向后兼容：RULE_SETS 仍然可用，但底层从注册表构建
+RULE_SETS: Dict[str, List[Rule]] = {
+    "prd": [],
+    "interaction": [],
+    "ui": [],
+    "tech": [],
+    "test": [],
 }
+
+
+def _build_registry():
+    """将所有静态规则列表迁移到注册表，并同步 RULE_SETS。"""
+    RuleRegistry.clear()
+    for doc_type, rules in [
+        ("prd", PRD_RULES),
+        ("interaction", INTERACTION_RULES),
+        ("ui", UI_RULES),
+        ("tech", TECH_RULES),
+        ("test", TEST_RULES),
+    ]:
+        for rule in rules:
+            RuleRegistry.register(doc_type, rule)
+        RULE_SETS[doc_type] = rules
+
+
+_build_registry()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3819,14 +3865,38 @@ def scan_downstream(doc_path: Path, docs_dir: Path) -> List[dict]:
 # 7. CLI
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _list_rules():
+    """输出所有规则列表"""
+    output = []
+    for doc_type, rules in RULE_SETS.items():
+        for rule in rules:
+            doc = (rule.__class__.__doc__ or "").strip()
+            output.append({
+                "type": doc_type,
+                "check_id": rule.check_id,
+                "rule_name": rule.__class__.__name__,
+                "description": doc,
+            })
+    print(json.dumps({"rules": output, "total": len(output)}, ensure_ascii=False, indent=2))
+
+
 def main():
     parser = argparse.ArgumentParser(description="产物一致性审计规则引擎")
-    parser.add_argument("doc_path", help="待审计产物路径")
-    parser.add_argument("--type", required=True, choices=list(RULE_SETS.keys()), help="产物类型")
+    parser.add_argument("doc_path", nargs="?", help="待审计产物路径")
+    parser.add_argument("--type", choices=list(RULE_SETS.keys()), help="产物类型")
     parser.add_argument("--upstream", action="append", default=[], help="上游文档路径（可多次指定）")
     parser.add_argument("--top-level", action="append", default=[], help="顶层定义文件路径（可多次指定）")
     parser.add_argument("--scan-downstream", metavar="DIR", default="", help="扫描下游引用")
+    parser.add_argument("--list-rules", action="store_true", help="列出当前支持的所有规则 ID")
+    parser.add_argument("--dry-run", action="store_true", help="只列出本次会检查的规则，不执行检查")
     args = parser.parse_args()
+
+    if args.list_rules:
+        _list_rules()
+        sys.exit(0)
+
+    if not args.doc_path or not args.type:
+        parser.error("doc_path 和 --type 为必填项（--list-rules 模式除外）")
 
     doc_path = Path(args.doc_path)
     if not doc_path.exists():
@@ -3848,6 +3918,28 @@ def main():
         sys.exit(0)
 
     engine = AuditEngine(str(doc_path), args.type, upstream_paths=args.upstream, top_level_paths=args.top_level)
+
+    if args.dry_run:
+        is_template = engine._detect_template()
+        rules = RULE_SETS.get(args.type, [])
+        output = []
+        for rule in rules:
+            doc = (rule.__class__.__doc__ or "").strip()
+            output.append({
+                "check_id": rule.check_id,
+                "rule_name": rule.__class__.__name__,
+                "description": doc,
+            })
+        print(json.dumps({
+            "mode": "dry_run",
+            "doc_type": args.type,
+            "doc": str(doc_path),
+            "is_template": is_template,
+            "rules_count": len(output),
+            "rules": output,
+        }, ensure_ascii=False, indent=2))
+        sys.exit(0)
+
     result = engine.run()
     print(json.dumps(result, ensure_ascii=False, indent=2))
     sys.exit(0 if result["passed"] else 1)
