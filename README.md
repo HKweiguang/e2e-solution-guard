@@ -59,7 +59,7 @@ python3 scripts/doc-audit.py docs/需求/{PRD标题}.md --scan-downstream ./docs
 make test
 ```
 
-> **脚本与 AI 的分工**：`doc-audit.py` 负责结构化、确定性检查（格式、存在性、计数、连续性），覆盖约 73% 的机械检查项；语义判断（映射正确性、设计合理性）由 AI subagent 负责。详见 `references/workflow/audit-procedure.md`。
+> **脚本与 AI 的分工**：`doc-audit.py` 负责结构化、确定性检查（格式、存在性、计数、连续性），覆盖约 73% 的机械检查项；语义判断（映射正确性、设计合理性）由 AI 负责。详见 `references/workflow/audit-procedure.md`。
 
 ---
 
@@ -153,7 +153,7 @@ docs/
 
 ### 脚本与 AI 的分工
 
-| 维度 | 脚本 (`doc-audit.py`) | AI (subagent) |
+| 维度 | 脚本 (`doc-audit.py`) | AI |
 |------|----------------------|--------------|
 | 负责范围 | 格式、存在性、计数、连续性 | 语义、正确性、合理性 |
 | 判断依据 | 模式/规则/穷举 | 业务上下文理解 |

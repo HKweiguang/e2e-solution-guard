@@ -576,10 +576,8 @@ class BidirectionalMappingRule(Rule):
         # 3. 从当前文档提取功能点引用
         tech_extractor = MarkdownExtractor(data.raw_text)
         tech_feature_ids: Set[str] = set()
-        # §4 接口设计的「对应功能点」列
+        # §4 接口设计（含接口汇总表）的「对应功能点」列
         tech_feature_ids.update(tech_extractor.table_column_values(r"§4\s+接口设计", "对应功能点"))
-        # §13 接口清单的「对应功能点」列
-        tech_feature_ids.update(tech_extractor.table_column_values(r"§13\s+接口清单", "对应功能点"))
         # 头部「覆盖功能点」行
         header_match = re.search(r"\*\*覆盖功能点\*\*[:：]?\s*(.+?)(?:\n|$)", data.raw_text)
         if header_match:
@@ -1341,9 +1339,9 @@ class InterfaceTestCoverageRule(Rule):
         if not upstream_data:
             return []
 
-        # 从 Tech §13 提取接口列表
+        # 从 Tech §4 接口汇总表提取接口列表
         tech_extractor = MarkdownExtractor(upstream_data.raw_text)
-        table = tech_extractor.table_after_heading(r"§13\s+接口清单")
+        table = tech_extractor.table_after_heading(r"§4\s+接口设计")
         tech_interfaces: Set[Tuple[str, str]] = set()
         if table and len(table) >= 2:
             header = [c.strip() for c in table[0]]
@@ -1624,7 +1622,7 @@ class StateStyleExistRule(Rule):
 
 
 class InterfaceInventoryMatchRule(Rule):
-    """技术方案: 检查 §13 接口清单与 §4 接口设计是否一一对应"""
+    """技术方案: 检查 §4 接口汇总表与接口详情定义是否一一对应"""
 
     def __init__(self, check_id: str):
         self.check_id = check_id
@@ -1634,27 +1632,27 @@ class InterfaceInventoryMatchRule(Rule):
             return []
         extractor = MarkdownExtractor(data.raw_text)
 
-        sec4_interfaces = self._extract_sec4_interfaces(extractor)
-        sec13_interfaces = self._extract_sec13_interfaces(extractor)
+        sec4_detail_interfaces = self._extract_sec4_interfaces(extractor)
+        sec4_summary_interfaces = self._extract_sec4_summary_interfaces(extractor)
 
-        if not sec4_interfaces and not sec13_interfaces:
+        if not sec4_detail_interfaces and not sec4_summary_interfaces:
             return []
 
         issues = []
-        missing_in_13 = sec4_interfaces - sec13_interfaces
-        for method, path in missing_in_13:
+        missing_in_summary = sec4_detail_interfaces - sec4_summary_interfaces
+        for method, path in missing_in_summary:
             issues.append(Issue(
                 check_id=self.check_id, severity="blocking",
                 location="接口一致性",
-                message=f"§4 接口设计中的 {method} {path} 在 §13 接口清单中未找到"
+                message=f"§4 接口详情中的 {method} {path} 在接口汇总表中未找到"
             ))
 
-        extra_in_13 = sec13_interfaces - sec4_interfaces
-        for method, path in extra_in_13:
+        extra_in_summary = sec4_summary_interfaces - sec4_detail_interfaces
+        for method, path in extra_in_summary:
             issues.append(Issue(
                 check_id=self.check_id, severity="blocking",
                 location="接口一致性",
-                message=f"§13 接口清单中的 {method} {path} 在 §4 接口设计中未找到"
+                message=f"§4 接口汇总表中的 {method} {path} 在接口详情中未找到"
             ))
         return issues
 
@@ -1707,7 +1705,7 @@ class InterfaceInventoryMatchRule(Rule):
 
     def _extract_sec13_interfaces(self, extractor: MarkdownExtractor) -> Set[Tuple[str, str]]:
         interfaces: Set[Tuple[str, str]] = set()
-        table = extractor.table_after_heading(r"§13\s+接口清单")
+        table = extractor.table_after_heading(r"§4\s+接口设计")
         if not table or len(table) < 2:
             return interfaces
         header = [c.strip() for c in table[0]]
@@ -2155,7 +2153,7 @@ class ExceptionTableColumnsRule(Rule):
 
 
 class InterfaceInventoryColumnsRule(Rule):
-    """技术方案: 检查 §13 接口清单表格是否包含必填列"""
+    """技术方案: 检查 §4 接口汇总表是否包含必填列"""
 
     def __init__(self, check_id: str, required_cols: List[str]):
         self.check_id = check_id
@@ -2165,12 +2163,12 @@ class InterfaceInventoryColumnsRule(Rule):
         if ctx.is_template:
             return []
         extractor = MarkdownExtractor(data.raw_text)
-        table = extractor.table_after_heading(r"§13\s+接口清单")
+        table = extractor.table_after_heading(r"§4\s+接口设计")
         if not table or len(table) < 2:
             return [Issue(
                 check_id=self.check_id, severity="blocking",
-                location="§13 接口清单",
-                message="未找到接口清单表格"
+                location="§4 接口汇总表",
+                message="未找到接口汇总表"
             )]
         header = [c.strip() for c in table[0]]
         issues = []
@@ -2178,7 +2176,7 @@ class InterfaceInventoryColumnsRule(Rule):
             if col not in header:
                 issues.append(Issue(
                     check_id=self.check_id, severity="blocking",
-                    location="§13 接口清单表头",
+                    location="§4 接口汇总表表头",
                     message=f"缺少必填列: {col}"
                 ))
         return issues
@@ -3204,7 +3202,7 @@ class TechExceptionToTestRule(Rule):
 
 
 class TechInterfaceToTestRule(Rule):
-    """Test: 技术方案 §13/§4 每个接口应在测试 §1/§2 中有对应测试覆盖"""
+    """Test: 技术方案 §4 每个接口应在测试 §1/§2 中有对应测试覆盖"""
 
     def __init__(self, check_id: str):
         self.check_id = check_id
@@ -3215,9 +3213,8 @@ class TechInterfaceToTestRule(Rule):
         tech_interfaces: Set[str] = set()
         for up_data in ctx.upstream_docs.values():
             extractor = MarkdownExtractor(up_data.raw_text)
-            for sec in (r"§13\s+接口清单", r"§4\s+接口设计"):
-                for col in ("路径", "URL", "接口地址"):
-                    tech_interfaces.update(extractor.table_column_values(sec, col))
+            for col in ("路径", "URL", "接口地址"):
+                tech_interfaces.update(extractor.table_column_values(r"§4\s+接口设计", col))
         tech_interfaces = {i for i in tech_interfaces if i}
         if not tech_interfaces:
             return []
@@ -3613,7 +3610,7 @@ TECH_RULES: List[Rule] = [
     SectionExistsRule("T-A1", [
         "技术决策", "依赖关系", "数据模型", "接口设计", "状态机设计",
         "核心流程", "异常处理", "性能与扩展性", "高可用设计", "安全设计",
-        "监控与日志", "灰度与回滚", "接口清单", "风险评估",
+        "监控与日志", "灰度与回滚", "风险评估",
     ]),
     TechAuditFieldRule("T-A2"),
     TechInterfaceElementsRule("T-A4", ["URL", "方法", "请求参数", "响应结构", "错误码", "版本号"]),
