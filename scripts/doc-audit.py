@@ -708,6 +708,169 @@ class CrossDocTerminologyRule(Rule):
         return None
 
 
+class ContractTraceabilityRule(Rule):
+    """契约驱动追溯规则：从 PRD-顶层定义的编号引用契约矩阵中读取追溯要求，
+    检查上游 PRD 中定义的每种强制编号类型，是否在当前产物中有对应引用。
+
+    此规则是根因修复的核心：编号体系从"枚举式"升级为"契约驱动式"，
+    新增编号类型时只需在契约矩阵添加一行，审计自动覆盖。
+    """
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    # 编号类型 → 正则模式的映射
+    ID_PATTERNS = {
+        "功能编号": r"[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+",
+        "故事编号": r"STORY-[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+",
+        "规则编号": r"RULE-[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+",
+        "错误码": r"ERR-[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+",
+        "验收项编号": r"ACC-[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+",
+    }
+
+    # 下游产物描述 → 产物类型映射（用于匹配契约矩阵中的"下游产物"列）
+    DOC_TYPE_PATTERNS = {
+        "tech": [r"技术方案"],
+        "interaction": [r"交互设计"],
+        "ui": [r"UI设计", r"UI 设计"],
+        "test": [r"测试"],
+    }
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        if ctx.is_template:
+            return []
+
+        # 1. 从 top_level_docs 中找到 PRD-顶层定义
+        prd_top_level = self._find_prd_top_level(ctx)
+        if not prd_top_level:
+            return []
+
+        # 2. 提取编号引用契约矩阵
+        contract_rows = self._parse_contract_matrix(prd_top_level)
+        if not contract_rows:
+            return []
+
+        # 3. 筛选与当前产物类型相关且为"强制"的契约行
+        relevant_rows = self._filter_relevant_rows(contract_rows, ctx.doc_type)
+        if not relevant_rows:
+            return []
+
+        # 4. 从上游 PRD 中提取编号实例
+        upstream_prd = self._find_upstream_prd(ctx)
+        if not upstream_prd:
+            return []
+
+        issues = []
+        checked_types: Set[str] = set()  # 避免同一编号类型重复检查
+
+        for row in relevant_rows:
+            id_type = row.get("编号类型", "").strip()
+            downstream_location = row.get("下游位置", "").strip()
+
+            if not id_type or id_type in checked_types:
+                continue
+            checked_types.add(id_type)
+
+            # 从上游 PRD 中提取该编号类型的所有实例
+            ids = self._extract_ids_by_type(upstream_prd, id_type)
+            if not ids:
+                continue
+
+            # 检查这些编号是否在当前产物中出现
+            missing = ids - self._find_ids_in_text(ids, data.raw_text)
+            for id_str in sorted(missing):
+                issues.append(Issue(
+                    check_id=self.check_id,
+                    severity="blocking",
+                    location="编号引用契约",
+                    message=f"契约要求：{id_type} 必须在当前产物中引用（{downstream_location}）。"
+                            f"PRD 中定义的 {id_str} 在当前产物中未找到"
+                ))
+
+        return issues
+
+    def _find_prd_top_level(self, ctx: AuditContext) -> Optional[ExtractedData]:
+        for path, data in ctx.top_level_docs.items():
+            if "prd" in path.lower() and ("top" in path.lower() or "顶层" in path):
+                return data
+        return None
+
+    def _parse_contract_matrix(self, data: ExtractedData) -> List[Dict[str, str]]:
+        """从 PRD-顶层定义中提取编号引用契约矩阵"""
+        extractor = MarkdownExtractor(data.raw_text)
+
+        # 尝试多个可能的 heading 模式
+        headings = [
+            r"编号引用契约",
+            r"编号引用契约矩阵",
+            r"2\.6\s+编号引用",
+        ]
+
+        for heading in headings:
+            table = extractor.table_after_heading(heading)
+            if table and len(table) >= 2:
+                return self._table_to_dicts(table)
+
+        return []
+
+    def _table_to_dicts(self, table: List[List[str]]) -> List[Dict[str, str]]:
+        if not table or len(table) < 2:
+            return []
+        header = [c.strip() for c in table[0]]
+        rows = []
+        for row in table[1:]:
+            if len(row) < len(header):
+                continue
+            # 跳过分隔符行
+            if all(re.match(r"^:?-+:?$", c.strip()) for c in row if c.strip()):
+                continue
+            d = {}
+            for i, col_name in enumerate(header):
+                d[col_name] = row[i].strip() if i < len(row) else ""
+            rows.append(d)
+        return rows
+
+    def _filter_relevant_rows(self, rows: List[Dict[str, str]], doc_type: str) -> List[Dict[str, str]]:
+        """筛选与当前产物类型相关且为"强制"的契约行"""
+        patterns = self.DOC_TYPE_PATTERNS.get(doc_type, [])
+        result = []
+        for row in rows:
+            downstream = row.get("下游产物", "")
+            mandatory = row.get("是否强制", "")
+            # 匹配产物类型
+            matched = any(re.search(p, downstream) for p in patterns)
+            # 检查是否强制
+            is_mandatory = mandatory in ("强制", "是", "✓", "YES", "yes")
+            if matched and is_mandatory:
+                result.append(row)
+        return result
+
+    def _find_upstream_prd(self, ctx: AuditContext) -> Optional[ExtractedData]:
+        for path, data in ctx.upstream_docs.items():
+            if "prd" in path.lower() and "top" not in path.lower():
+                return data
+        # 回退：找任何包含 prd 的上游
+        for path, data in ctx.upstream_docs.items():
+            if "prd" in path.lower():
+                return data
+        return None
+
+    def _extract_ids_by_type(self, prd_data: ExtractedData, id_type: str) -> Set[str]:
+        """从 PRD 全文中提取指定类型的所有编号实例"""
+        pattern = self.ID_PATTERNS.get(id_type)
+        if not pattern:
+            return set()
+        return set(re.findall(pattern, prd_data.raw_text))
+
+    def _find_ids_in_text(self, ids: Set[str], text: str) -> Set[str]:
+        """检查一组编号是否在给定文本中出现"""
+        found = set()
+        for id_str in ids:
+            if id_str in text:
+                found.add(id_str)
+        return found
+
+
 class BrokenInternalLinkRule(Rule):
     """检查文档内部的 §x 交叉引用是否指向存在的章节"""
 
@@ -3582,6 +3745,7 @@ INTERACTION_RULES: List[Rule] = [
     UpstreamRefRule("I-B6"),
     TopLevelStateValueRule("I-B7", r"状态机"),
     TopLevelIdPrefixRule("I-B8", "页面编号", "页面编号", r"§\d+\s+.*页面"),
+    ContractTraceabilityRule("I-C1"),
 ]
 
 UI_RULES: List[Rule] = [
@@ -3643,6 +3807,7 @@ TECH_RULES: List[Rule] = [
     TechCacheKeyNamingRule("T-B15"),
     UpstreamRefRule("T-B13"),
     SectionExistsRule("T-A15", ["模块间服务契约"], severity="warning"),
+    ContractTraceabilityRule("T-C1"),
 ]
 
 TEST_RULES: List[Rule] = [
@@ -3673,6 +3838,7 @@ TEST_RULES: List[Rule] = [
     TechInterfaceToTestRule("S-B14"),
     PRDPerformanceToTestRule("S-B15"),
     TechSecurityToTestRule("S-B16"),
+    ContractTraceabilityRule("S-C1"),
 ]
 
 
