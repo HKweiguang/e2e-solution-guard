@@ -882,9 +882,14 @@ class BrokenInternalLinkRule(Rule):
         if ctx.is_template:
             return []
 
-        # 1. 提取文档中所有 §x 引用（如 §3、§4.2、§2.1.3）
+        # 1. 提取文档中所有 §x 引用（如 §3、§4.2、§2.1.3），排除外部文档引用（如 PRD-顶层定义 §2.5）
         ref_pattern = r"§(\d+(?:\.\d+)*)"
-        refs = set(re.findall(ref_pattern, data.raw_text))
+        refs = set()
+        for m in re.finditer(ref_pattern, data.raw_text):
+            prefix = data.raw_text[max(0, m.start()-20):m.start()]
+            if re.search(r'(?:PRD|TECH|交互设计|技术方案|UI)[\w\-]*\s*$', prefix):
+                continue
+            refs.add(m.group(1))
 
         # 2. 提取文档中实际存在的章节编号
         actual_sections: Set[str] = set()
@@ -1144,13 +1149,17 @@ class AcceptanceFeatureRefRule(Rule):
         if ctx.is_template:
             return []
         extractor = MarkdownExtractor(data.raw_text)
-        # 提取 §3 功能编号（表格第一列，跳过表头）
-        sec3_table = extractor.table_after_heading(r"§3\s+功能需求")
+        # 提取所有表格中的功能编号（第一列，符合 {模块}-{业务端}-{3位序号} 格式）
         feature_ids = set()
-        if sec3_table and len(sec3_table) > 1:
-            for row in sec3_table[1:]:
+        for table in data.tables:
+            if not table or len(table) < 2:
+                continue
+            for row in table[1:]:
                 if row and not re.match(r"^:?-+:?$", row[0]):
-                    feature_ids.add(row[0].strip())
+                    fid = row[0].strip()
+                    # 只收集功能编号格式（如 USER-CST-001），排除 RULE-/ERR-/ACC-/STORY-/PAGE- 等前缀
+                    if re.match(r'^[A-Z]{2,}-[A-Z]{2,}-\d{3}$', fid):
+                        feature_ids.add(fid)
 
         # 提取 §8 验收标准表格
         sec8_table = extractor.table_after_heading(r"§8\s+验收标准")
@@ -2253,6 +2262,16 @@ class DataModelTableColumnsRule(Rule):
             header = [c.strip() for c in table[0]]
             if re.match(r"^:?-+:?$", header[0]):
                 continue
+
+            # B7 修复：跳过非字段定义表（第一列 ≠ "字段" 或列数 ≠ 4）
+            if header[0] != "字段" or len(header) != 4:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="info",
+                    location=f"§5 数据模型表 #{idx}",
+                    message=f"跳过非字段定义表（首列: '{header[0]}'，列数: {len(header)}）"
+                ))
+                continue
+
             for col in self.required_cols:
                 if col not in header:
                     issues.append(Issue(
@@ -2908,25 +2927,99 @@ class TopLevelStateValueRule(Rule):
         allowed = _get_top_level_column_values(ctx, "状态值")
         if not allowed:
             return []
-        # 同时允许本产物 §5 中声明的状态值（从 业务说明/约束 列提取"取值：X/Y/Z"或 ENUM(...) 中的值）
-        extractor = MarkdownExtractor(data.raw_text)
-        local_states = set(extractor.table_column_values(r"§5\s+数据模型", "状态值"))
-        if not local_states:
-            descriptions = extractor.table_column_values(r"§5\s+数据模型", "业务说明")
-            for desc in descriptions:
-                m = re.search(r"取值[：:]\s*([\w\s/、，,]+)", desc)
-                if m:
-                    local_states.update(v.strip() for v in re.split(r"[/、，,]", m.group(1)) if v.strip())
-            constraints = extractor.table_column_values(r"§5\s+数据模型", "约束")
-            for constraint in constraints:
-                m = re.search(r"ENUM\s*\(\s*([^)]+)\s*\)", constraint, re.IGNORECASE)
-                if m:
-                    local_states.update(v.strip().strip("'\"") for v in m.group(1).split(","))
+        # W1 修复：去除顶层定义状态值列中的反引号
+        allowed = {v.strip('`').strip() for v in allowed if v.strip()}
+
+        # W1 修复 helper：从所有表格中提取状态值声明
+        def _extract_states_from_tables(tables):
+            states = set()
+            for table in tables:
+                if not table or len(table) < 2:
+                    continue
+                header = [c.strip() for c in table[0]]
+                # 从"状态值"列提取
+                if "状态值" in header:
+                    col_idx = header.index("状态值")
+                    for row in table[1:]:
+                        if len(row) > col_idx:
+                            val = row[col_idx].strip()
+                            if val and not re.match(r"^:?-+:?$", val):
+                                states.add(val.strip('`').strip())
+                # 从"业务说明"列提取
+                if "业务说明" in header:
+                    col_idx = header.index("业务说明")
+                    for row in table[1:]:
+                        if len(row) > col_idx:
+                            desc = row[col_idx].strip()
+                            # 方法1：匹配有前缀的格式（如 状态：A/B、角色：A/B、记录类型：A/B 等）
+                            m = re.search(r"[\w]*[：:]\s*([`\w\s/、，,（）()]+)", desc)
+                            if m:
+                                for v in re.split(r"[/、，,]", m.group(1)):
+                                    v = v.strip().strip('`').strip()
+                                    v = re.sub(r'[（(].*?[)）]', '', v).strip()
+                                    if v:
+                                        states.add(v)
+                            else:
+                                # 方法2：匹配无前缀的纯状态值列表格式（如 `A` / `B` / `C`）
+                                if re.search(r"[`']?[A-Z][A-Z_]*[`']?\s*[/、，,]", desc):
+                                    for v in re.findall(r"[`']?([A-Z][A-Z_]+)[`]?", desc):
+                                        states.add(v)
+                # 从"约束"列提取 ENUM
+                if "约束" in header:
+                    col_idx = header.index("约束")
+                    for row in table[1:]:
+                        if len(row) > col_idx:
+                            constraint = row[col_idx].strip()
+                            m = re.search(r"ENUM\s*\(\s*([^)]+)\s*\)", constraint, re.IGNORECASE)
+                            if m:
+                                states.update(v.strip().strip("'\"") for v in m.group(1).split(","))
+            return states
+
+        # 同时允许本产物 §5 中声明的状态值
+        local_states = _extract_states_from_tables(data.tables)
+
+        # W1 修复：扫描同目录下其他 PRD 的 §5 状态值声明，允许跨模块状态值引用
+        module_states = set()
+        doc_dir = Path(ctx.doc_path).parent
+        if doc_dir.exists():
+            for md_file in doc_dir.glob("*.md"):
+                if md_file.name == Path(ctx.doc_path).name:
+                    continue
+                try:
+                    text = md_file.read_text(encoding="utf-8")
+                    ex = MarkdownExtractor(text).extract()
+                    module_states.update(_extract_states_from_tables(ex.tables))
+                except Exception:
+                    pass
+
         allowed.update(local_states)
+        allowed.update(module_states)
 
         extractor = MarkdownExtractor(data.raw_text)
         section_text = extractor.section_text(self.scope_header)
+
+        # W1 修复：先移除编号格式（如 USER-CST-001、ERR-GLOBAL-001），
+        # 避免编号前缀段（USER、CST、ERR、GLOBAL 等）被误判为状态值
+        section_text = re.sub(
+            r'\b[A-Za-z][A-Za-z0-9_]*(?:-[A-Za-z][A-Za-z0-9_]*)*-\d+\b',
+            '', section_text
+        )
+
         found = set(re.findall(self.state_pattern, section_text))
+
+        # W1 修复：排除已知非状态值（文件扩展名、常见技术缩写、角色/权限标识等）
+        non_state_values = {
+            'JPG', 'JPEG', 'PNG', 'GIF', 'SVG', 'CSV', 'PDF',
+            'DOC', 'DOCX', 'XLS', 'XLSX',
+            'JSON', 'XML', 'YAML', 'YML', 'HTML', 'CSS', 'JS', 'SQL',
+            'UI', 'RAG', 'API', 'SDK', 'URL', 'URI',
+            'HTTP', 'HTTPS', 'REST', 'RPC', 'TCP', 'IP', 'SSL', 'TLS',
+            'ADMIN', 'SUPER_ADMIN', 'ROOT', 'OWNER', 'MEMBER', 'GUEST',
+            'READ', 'WRITE', 'DELETE', 'CREATE', 'UPDATE', 'VIEW', 'EDIT',
+            'AI', 'ID', 'AA', 'XX',
+        }
+        found -= non_state_values
+
         issues = []
         for val in found:
             if val not in allowed and len(val) > 1:  # 过滤单字母误匹配
@@ -3696,6 +3789,107 @@ class TechSecurityToTestRule(Rule):
         return issues
 
 
+
+class TechInterfaceInventoryPositionRule(Rule):
+    """检查 §4.4 接口汇总表是否位于接口详细定义之前。"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        text = data.raw_text
+        lines = text.splitlines()
+        
+        # 定位 §4.4 接口设计的起始行
+        start_idx = -1
+        for i, line in enumerate(lines):
+            if re.search(r'^#{2,3}\s+§?4\.4\s+接口设计', line):
+                start_idx = i
+                break
+        if start_idx == -1:
+            return []
+        
+        # 定位 §4.4 的结束行（下一个同级或更高级 heading）
+        end_idx = len(lines)
+        for i in range(start_idx + 1, len(lines)):
+            if re.match(r'^#{1,3}\s', lines[i]) and not re.match(r'^#{4,}\s', lines[i]):
+                end_idx = i
+                break
+        
+        section_lines = lines[start_idx:end_idx]
+        
+        # 找第一个表格（接口汇总表）
+        table_idx = -1
+        for i, line in enumerate(section_lines):
+            if line.strip().startswith('|') and '接口' in line:
+                table_idx = i
+                break
+        
+        # 找第一个 #### 子标题（接口详细定义）
+        detail_idx = -1
+        for i, line in enumerate(section_lines):
+            if re.match(r'^#{4,}\s', line):
+                detail_idx = i
+                break
+        
+        if table_idx == -1:
+            return [Issue(
+                check_id=self.check_id, severity="blocking",
+                location="§4.4 接口设计",
+                message="未找到接口汇总表"
+            )]
+        
+        if detail_idx != -1 and table_idx > detail_idx:
+            return [Issue(
+                check_id=self.check_id, severity="blocking",
+                location="§4.4 接口设计",
+                message="接口汇总表未放在 §4.4 最开头（位于接口详细定义之后），必须移至第一个接口详细定义之前"
+            )]
+        
+        return []
+
+
+
+class InteractionDesignSystemPositionRule(Rule):
+    """检查交互设计的产物级章节（设计系统引用）是否位于第一个页面章节之前。"""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        text = data.raw_text
+        lines = text.splitlines()
+
+        # 找设计系统引用章节的位置
+        design_idx = -1
+        for i, line in enumerate(lines):
+            if re.search(r'^#{2,3}\s+.*设计系统引用', line):
+                design_idx = i
+                break
+
+        if design_idx == -1:
+            return []  # 存在性由其他规则检查
+
+        # 找第一个页面章节（## §N {页面编号}）
+        page_idx = -1
+        for i, line in enumerate(lines):
+            if re.match(r'^##\s+§\d+\s+[A-Z]', line):
+                page_idx = i
+                break
+
+        if page_idx == -1:
+            return []  # 没有页面章节，不检查位置
+
+        if design_idx > page_idx:
+            return [Issue(
+                check_id=self.check_id, severity="blocking",
+                location="章节结构",
+                message="设计系统引用（产物级章节）未放在第一个页面章节之前，必须上移至文件头部之后、第一个页面章节之前"
+            )]
+
+        return []
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 4. 各产物类型的规则集
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3705,7 +3899,7 @@ PRD_RULES: List[Rule] = [
         "背景与目标", "用户与场景", "功能需求", "非功能需求",
         "数据模型", "业务规则", "错误处理", "验收标准", "依赖与范围", "附件",
     ]),
-    FeatureTableColumnsRule("P-A7", ["功能编号", "故事编号", "功能名称", "优先级", "交互方式", "技术实现单元", "业务规则", "验收标准"]),
+    FeatureTableColumnsRule("P-A7", ["功能编号", "故事编号", "功能名称", "优先级", "交互方式", "业务规则", "验收标准"]),
     DataModelTableColumnsRule("P-A11", ["字段", "业务类型", "约束", "业务说明"]),
     ErrorCodeTableColumnsRule("P-A9", ["错误码", "触发场景", "前端提示"]),
     IdFormatConsistencyRule("P-A5"),
@@ -3745,6 +3939,7 @@ INTERACTION_RULES: List[Rule] = [
     UpstreamRefRule("I-B6"),
     TopLevelStateValueRule("I-B7", r"状态机"),
     TopLevelIdPrefixRule("I-B8", "页面编号", "页面编号", r"§\d+\s+.*页面"),
+    InteractionDesignSystemPositionRule("I-A11"),
     ContractTraceabilityRule("I-C1"),
 ]
 
@@ -3786,6 +3981,7 @@ TECH_RULES: List[Rule] = [
     ExceptionTableColumnsRule("T-A6", ["异常编号", "异常类型", "场景", "触发条件", "技术处理", "用户提示", "错误码"]),
     InterfaceInventoryColumnsRule("T-A7", ["接口编号", "接口名", "方法", "路径", "对应功能点", "权限", "版本"]),
     InterfaceInventoryMatchRule("T-A8"),
+    TechInterfaceInventoryPositionRule("T-A9"),
     TableFieldInterfaceRefRule("T-A10"),
     ExceptionInterfaceRefRule("T-A11"),
     TableFormatRule("T-A12"),
@@ -4028,7 +4224,475 @@ def scan_downstream(doc_path: Path, docs_dir: Path) -> List[dict]:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 7. CLI
+# 7. 模型检查点生成（根本防偷懒机制）
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def resolve_skill_steps_dir() -> Optional[Path]:
+    """通过脚本自身位置定位 skill 的 references/steps/ 目录"""
+    script_path = Path(__file__).resolve()
+    skill_root = script_path.parent.parent
+    steps_dir = skill_root / "references" / "steps"
+    if steps_dir.is_dir():
+        return steps_dir
+    return None
+
+
+def resolve_skill_top_level_dir() -> Optional[Path]:
+    """通过脚本自身位置定位 skill 的 references/top-level/ 目录"""
+    script_path = Path(__file__).resolve()
+    skill_root = script_path.parent.parent
+    top_level_dir = skill_root / "references" / "top-level"
+    if top_level_dir.is_dir():
+        return top_level_dir
+    return None
+
+
+def _is_top_level_document(doc_path: Path) -> bool:
+    """根据文件名判断是否为顶层定义文档。"""
+    name = doc_path.name.lower()
+    return "top-level" in name or "顶层定义" in name
+
+
+def _is_interaction_page_chapter(section_name: str) -> bool:
+    """判断是否为交互设计的页面章节（如 §1 PAGE-001 首页）。
+
+    页面章节格式：## §N {页面编号} {页面名}
+    其中页面编号支持多段连字符（如 PAGE-001、PAGE-USER-CST-001、PAGE-CST-MP-HOME-001）。
+    """
+    return bool(re.search(r'§\d+\s+[A-Z]+(?:-[A-Z]+)*-\d+', section_name))
+
+
+def parse_model_checklist(step_path: Path, scope_filter: Optional[str] = None) -> dict:
+    """解析步骤模板，提取所有 `[模型]` 检查项，按维度分组。
+
+    模板格式:
+        ## §6 检查清单
+        ### 6.1 结构维度
+        - [ ] **L1** `[脚本]` ...
+        - [ ] **L2** `[模型]` ...
+    """
+    text = step_path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+
+    # 找到检查清单章节（prd/interaction/tech/test 为 §6，ui 为 §5，code-audit-report 为 §4）
+    checklist_start = -1
+    for i, line in enumerate(lines):
+        if re.search(r'^##\s+§[456]\s+检查清单', line):
+            checklist_start = i
+            break
+
+    if checklist_start == -1:
+        return {"dimensions": [], "checkpoints": [], "total": 0}
+
+    dimensions: List[str] = []
+    checkpoints: List[dict] = []
+    current_dimension: Optional[str] = None
+    pattern = re.compile(r'^\s*-\s+\[\s*\]\s+\*\*L(\d+)\*\*\s+`\[模型\]`\s+(.*)$')
+
+    for line in lines[checklist_start:]:
+        # 遇到下一个顶级 ## 标题（非检查清单自身）则停止
+        if re.match(r'^##\s', line) and not re.search(r'^##\s+§[456]\s+检查清单', line):
+            break
+
+        # 维度标题: ### 6.1 结构维度 / ### 6.7 端到端链路 / ### 6.8 版本与边界
+        dim_match = re.match(r'^###\s+\d+\.\d+\s+(.+)$', line)
+        if dim_match:
+            current_dimension = dim_match.group(1).strip()
+            # 统一去掉末尾的"维度"二字，保留"链路""边界"等
+            if current_dimension.endswith('维度'):
+                current_dimension = current_dimension[:-2].strip()
+            dimensions.append(current_dimension)
+            continue
+
+        m = pattern.match(line)
+        if m:
+            level = m.group(1)
+            description = m.group(2).strip()
+            cp = {
+                "id": f"M-{current_dimension or 'UNK'}-L{level}-{len(checkpoints)+1:03d}",
+                "level": f"L{level}",
+                "dimension": current_dimension or "未分类",
+                "description": description,
+            }
+            if scope_filter is None or (current_dimension and scope_filter.lower() in current_dimension.lower()):
+                checkpoints.append(cp)
+
+    return {
+        "dimensions": dimensions,
+        "checkpoints": checkpoints,
+        "total": len(checkpoints),
+    }
+
+
+def generate_model_checklist(doc_type: str, scope_filter: Optional[str] = None) -> dict:
+    """生成指定产物类型的 [模型] 语义检查点清单。"""
+    steps_dir = resolve_skill_steps_dir()
+    if not steps_dir:
+        return {"error": "无法定位 skill 的 references/steps/ 目录（脚本应位于 skill/scripts/ 下）"}
+
+    # 特殊映射: code-audit-report.md 对应 code-audit 类型
+    filename = f"{doc_type}-step.md" if doc_type != "code-audit" else "code-audit-report.md"
+    step_file = steps_dir / filename
+    if not step_file.exists():
+        return {"error": f"步骤模板不存在: {step_file}"}
+
+    result = parse_model_checklist(step_file, scope_filter)
+    result["doc_type"] = doc_type
+    result["template"] = str(step_file)
+    result["mode"] = "model_checklist"
+    if scope_filter:
+        result["scope_filter"] = scope_filter
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 8. 模板迁移分析
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def extract_template_sections(step_path: Path) -> List[str]:
+    """从模板的章节结构表格中提取章节列表。
+
+    步骤模板（steps/*.md）的章节结构通常在 §2；
+    顶层定义模板（top-level/*.md）的章节结构通常在 §1。
+    因此同时查找 §1 和 §2 中的章节结构表格。
+    """
+    text = step_path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+
+    # 定位 ## §1 或 ## §2 中的"章节结构"
+    section_start = -1
+    for i, line in enumerate(lines):
+        if re.search(r'^##\s+§[12]\s+章节结构', line):
+            section_start = i
+            break
+
+    if section_start == -1:
+        return []
+
+    # 定位紧随其后的第一个表格
+    table_start = -1
+    for i in range(section_start, min(section_start + 15, len(lines))):
+        if lines[i].strip().startswith('|'):
+            table_start = i
+            break
+
+    if table_start == -1:
+        return []
+
+    sections: List[str] = []
+    for i in range(table_start, len(lines)):
+        line = lines[i].strip()
+        if not line.startswith('|'):
+            break
+        # 跳过分隔线行 |:---|---|
+        if re.match(r'^\|?\s*:?-+:?\s*\|', line):
+            continue
+        cells = [c.strip() for c in line.split('|')[1:-1]]
+        if cells and cells[0] and cells[0] != '章节':
+            sections.append(cells[0])
+
+    return sections
+
+
+def extract_product_sections(data: ExtractedData) -> List[str]:
+    """从产物提取 ## 级别的章节 heading 列表。"""
+    sections: List[str] = []
+    for level, text in data.sections:
+        if level == 2:
+            sections.append(text.strip())
+    return sections
+
+
+def _normalize_section_name(name: str) -> str:
+    """去掉章节名中的 §N 前缀，用于模糊匹配。"""
+    return re.sub(r'^§\d+\s+', '', name).strip()
+
+
+def analyze_migration(doc_path: Path, doc_type: str) -> dict:
+    """分析产物与当前模板的差异，输出改造任务列表。"""
+    # 加载产物
+    if not doc_path.exists():
+        return {"error": f"产物文件不存在: {doc_path}"}
+
+    product_text = doc_path.read_text(encoding="utf-8")
+    product_data = MarkdownExtractor(product_text).extract()
+    product_sections = extract_product_sections(product_data)
+
+    # 加载模板：区分步骤模板和顶层定义模板
+    steps_dir = resolve_skill_steps_dir()
+    if not steps_dir:
+        return {"error": "无法定位 skill 的 references/steps/ 目录"}
+
+    is_top_level = _is_top_level_document(doc_path)
+    if is_top_level:
+        top_level_dir = resolve_skill_top_level_dir()
+        if top_level_dir:
+            filename = f"{doc_type}-top-level-template.md"
+            step_file = top_level_dir / filename
+            if not step_file.exists():
+                return {"error": f"顶层定义模板不存在: {step_file}"}
+        else:
+            return {"error": "无法定位 skill 的 references/top-level/ 目录"}
+    else:
+        filename = f"{doc_type}-step.md" if doc_type != "code-audit" else "code-audit-report.md"
+        step_file = steps_dir / filename
+        if not step_file.exists():
+            return {"error": f"步骤模板不存在: {step_file}"}
+
+    template_sections = extract_template_sections(step_file)
+    if not template_sections:
+        if is_top_level:
+            return {
+                "error": f"顶层定义模板 {step_file} 未找到 §2 章节结构表格，该模板类型暂不支持自动迁移分析",
+                "doc_type": doc_type,
+                "doc_path": str(doc_path),
+                "is_top_level": True,
+            }
+        return {
+            "error": f"模板 {step_file} 未找到 §2 章节结构表格（UI 等特殊模板可能不支持自动迁移分析）",
+            "doc_type": doc_type,
+            "doc_path": str(doc_path),
+        }
+
+    product_norm = [_normalize_section_name(s) for s in product_sections]
+    template_norm = [_normalize_section_name(s) for s in template_sections]
+
+    # 缺失：模板有但产物没有
+    missing: List[str] = []
+    for i, t in enumerate(template_sections):
+        if template_norm[i] not in product_norm:
+            missing.append(t)
+
+    # 多余：产物有但模板没有
+    # 交互设计特殊处理：页面章节（§N PAGE-XXX）是变量，不报告为多余
+    extra: List[str] = []
+    for i, p in enumerate(product_sections):
+        if product_norm[i] not in template_norm:
+            if doc_type == "interaction" and _is_interaction_page_chapter(p):
+                continue
+            extra.append(p)
+
+    # 检查清单
+    checklist = parse_model_checklist(step_file)
+
+    # 生成改造任务：模板 §2 章节结构是一个整体要求
+    tasks: List[dict] = []
+
+    if missing:
+        tasks.append({
+            "priority": "blocking",
+            "action": "章节结构完整性：产物必须完整包含模板 §2 定义的全部章节",
+            "detail": [f"缺失：{s}" for s in missing],
+            "hint": f"当前产物缺失 {len(missing)} 个章节，需按模板 §2 章节结构补充",
+        })
+
+    if extra:
+        tasks.append({
+            "priority": "warning",
+            "action": "章节边界检查：产物中存在模板 §2 未定义的章节",
+            "detail": [f"多余：{s}" for s in extra],
+            "hint": "这些章节不在当前模板章节结构中，可能是旧版残留或应移至其他步骤产物",
+        })
+
+    # 顺序检查（仅对共同章节）
+    common_prod_order = [product_norm[i] for i, _ in enumerate(product_sections) if product_norm[i] in template_norm]
+    common_tpl_order = [template_norm[i] for i, _ in enumerate(template_sections) if template_norm[i] in product_norm]
+    if common_prod_order and common_tpl_order and common_prod_order != common_tpl_order:
+        tasks.append({
+            "priority": "warning",
+            "action": "章节顺序一致性：产物章节顺序必须与模板 §2 一致",
+            "detail": {
+                "product_order": common_prod_order,
+                "template_order": common_tpl_order,
+            },
+            "hint": "共同章节的排列顺序与模板不符，建议按模板顺序重排",
+        })
+
+    # 已有章节：模板有且产物也有，但内容格式可能不符合当前模板
+    existing = [t for t in template_sections if _normalize_section_name(t) in product_norm]
+
+    return {
+        "mode": "migration_analysis",
+        "doc_type": doc_type,
+        "doc_path": str(doc_path),
+        "template": str(step_file),
+        "product_sections": product_sections,
+        "template_sections": template_sections,
+        "missing_sections": missing,
+        "extra_sections": extra,
+        "existing_sections": existing,
+        "model_checklist": {
+            "total": checklist["total"],
+            "dimensions": checklist["dimensions"],
+        },
+        "migration_tasks": tasks,
+        "note": f"产物已有 {len(existing)} 个章节与模板匹配，但这些章节的内容格式是否符合当前模板要求，需通过全量审计确认。"
+    }
+
+
+def _is_placeholder_content(text: str) -> bool:
+    """判断内容是否为空或仅为占位符。
+
+    防误判原则：
+    - 英文占位符（todo/tbd）使用单词边界 \b 匹配，避免命中 TodoAppService、pet_todos 等业务词汇
+    - 排除代码块（含 mermaid 时序图）内的变量名/标识符误判
+    - 中文占位符使用精确包含匹配
+    """
+    if not text or not text.strip():
+        return True
+    stripped = text.strip()
+
+    # 去除代码块内容（含 mermaid、sql 等），避免时序图变量名、代码标识符被误判
+    # 匹配 ```lang\n...\n``` 格式的代码块
+    text_for_check = re.sub(r'```[\w]*\n[\s\S]*?\n```', '', stripped)
+    lower = text_for_check.lower()
+
+    # 英文占位符：单词边界匹配，防止子串误命中业务词汇
+    for p in ["todo", "tbd"]:
+        if re.search(r'\b' + re.escape(p) + r'\b', lower):
+            return True
+
+    # 中文占位符：精确包含匹配
+    for p in ["待补充", "待填写", "（待补充）", "（待填写）"]:
+        if p in lower:
+            return True
+
+    # 仅由省略号、横线、空白、表格分隔符组成
+    if re.match(r'^[\.\-\s\|\:\_\*]+$', stripped):
+        return True
+    return False
+
+
+def _section_needs_table(section_name: str) -> bool:
+    """根据章节名判断该章节是否通常需要包含表格。"""
+    norm = _normalize_section_name(section_name)
+    table_sections = [
+        "功能需求", "非功能需求", "数据模型", "业务规则",
+        "错误处理", "验收标准", "用户与场景", "依赖与范围",
+    ]
+    return any(ts in norm for ts in table_sections)
+
+
+def _extract_section_content(md_extractor: MarkdownExtractor, section_heading: str) -> str:
+    """提取指定章节的全部文本内容（直到同级或更高级 heading）。"""
+    # 将章节名中的特殊字符转义，用于正则匹配
+    escaped = re.escape(section_heading)
+    return md_extractor.section_text(escaped)
+
+
+def analyze_transformation(doc_path: Path, doc_type: str) -> dict:
+    """分析产物与 skill 标准的全量差距，输出结构+内容+链路差距及改造任务列表。"""
+    # 1. 复用迁移分析获取结构差距
+    migration = analyze_migration(doc_path, doc_type)
+    if "error" in migration:
+        return migration
+
+    # 加载产物进行内容分析
+    product_text = doc_path.read_text(encoding="utf-8")
+    md_extractor = MarkdownExtractor(product_text)
+    product_data = md_extractor.extract()
+
+    # 2. 内容机械检查：对每个已有章节
+    content_gaps: List[dict] = []
+    transformation_tasks: List[dict] = []
+    task_counter = 0
+
+    for section_name in migration["existing_sections"]:
+        norm_name = _normalize_section_name(section_name)
+        section_text = _extract_section_content(md_extractor, section_name)
+
+        gaps: List[str] = []
+        priority = "info"
+
+        # 2.1 内容存在性检查
+        if _is_placeholder_content(section_text):
+            gaps.append("章节内容为空或仅为占位符")
+            priority = "blocking"
+
+        # 2.2 表格存在性检查（对通常需要表格的章节）
+        if _section_needs_table(section_name):
+            has_table = False
+            # 检查该章节下是否有表格
+            tables = md_extractor.all_tables_after_heading(re.escape(section_name))
+            if tables:
+                for table in tables:
+                    if len(table) >= 2:  # 至少表头+一行数据
+                        has_table = True
+                        break
+            if not has_table:
+                gaps.append(f"章节『{norm_name}』通常需要包含表格，但未检测到有效表格")
+                if priority == "info":
+                    priority = "warning"
+
+        # 2.3 内容长度检查（过于简短的章节）
+        if section_text and len(section_text.strip()) < 50 and not _is_placeholder_content(section_text):
+            gaps.append("章节内容过于简短，可能未按要求详细描述")
+            if priority == "info":
+                priority = "warning"
+
+        if gaps:
+            task_counter += 1
+            task_id = f"T{task_counter:03d}"
+            content_gaps.append({
+                "section": section_name,
+                "norm_name": norm_name,
+                "gaps": gaps,
+                "priority": priority,
+                "content_length": len(section_text.strip()) if section_text else 0,
+            })
+            transformation_tasks.append({
+                "task_id": task_id,
+                "target_section": section_name,
+                "task_type": "content_rewrite" if priority == "blocking" else "content_enhance",
+                "priority": priority,
+                "expected_output_format": "按模板 §4 格式要求输出完整章节内容",
+                "issues": gaps,
+            })
+
+    # 3. 为缺失章节生成改造任务
+    for section_name in migration["missing_sections"]:
+        task_counter += 1
+        task_id = f"T{task_counter:03d}"
+        transformation_tasks.append({
+            "task_id": task_id,
+            "target_section": section_name,
+            "task_type": "content_generate",
+            "priority": "blocking",
+            "expected_output_format": "按模板 §4 格式要求生成完整章节内容",
+            "issues": ["章节缺失"],
+        })
+
+    # 4. 为多余章节生成改造任务
+    for section_name in migration["extra_sections"]:
+        task_counter += 1
+        task_id = f"T{task_counter:03d}"
+        transformation_tasks.append({
+            "task_id": task_id,
+            "target_section": section_name,
+            "task_type": "content_migrate_or_remove",
+            "priority": "warning",
+            "expected_output_format": "确认内容归属后迁移或删除",
+            "issues": ["章节不在模板结构中，可能是旧版残留"],
+        })
+
+    # 5. 组装结果
+    result = dict(migration)
+    result["mode"] = "transformation_analysis"
+    result["content_gaps"] = content_gaps
+    result["transformation_tasks"] = transformation_tasks
+    result["total_tasks"] = len(transformation_tasks)
+    result["note"] = (
+        f"产物已有 {len(migration['existing_sections'])} 个章节与模板匹配，"
+        f"其中 {len(content_gaps)} 个章节存在内容差距；"
+        f"缺失 {len(migration['missing_sections'])} 个章节；"
+        f"多余 {len(migration['extra_sections'])} 个章节。"
+        f"共生成 {len(transformation_tasks)} 个改造任务。"
+    )
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 9. CLI
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _list_rules():
@@ -4049,20 +4713,57 @@ def _list_rules():
 def main():
     parser = argparse.ArgumentParser(description="产物一致性审计规则引擎")
     parser.add_argument("doc_path", nargs="?", help="待审计产物路径")
-    parser.add_argument("--type", choices=list(RULE_SETS.keys()), help="产物类型")
+    parser.add_argument("--type", choices=list(RULE_SETS.keys()) + ["code-audit"], help="产物类型")
     parser.add_argument("--upstream", action="append", default=[], help="上游文档路径（可多次指定）")
     parser.add_argument("--top-level", action="append", default=[], help="顶层定义文件路径（可多次指定）")
     parser.add_argument("--scan-downstream", metavar="DIR", default="", help="扫描下游引用")
     parser.add_argument("--list-rules", action="store_true", help="列出当前支持的所有规则 ID")
     parser.add_argument("--dry-run", action="store_true", help="只列出本次会检查的规则，不执行检查")
+    parser.add_argument("--model-checklist", action="store_true", help="生成 [模型] 语义检查点清单（脚本提取全部检查点，AI 只负责逐条判断填空）")
+    parser.add_argument("--scope", default="", help="按维度筛选检查点（如'数据'、'状态'），仅在 --model-checklist 模式下有效")
+    parser.add_argument("--migrate", action="store_true", help="分析产物与当前模板的差异，输出改造任务列表（一键改造入口）")
+    parser.add_argument("--transform", action="store_true", help="全量改造分析：结构+内容+链路差距诊断，输出完整改造任务列表")
     args = parser.parse_args()
 
     if args.list_rules:
         _list_rules()
         sys.exit(0)
 
+    # --model-checklist 模式：脚本提取检查点，AI 只负责填空
+    if args.model_checklist:
+        if not args.type:
+            parser.error("--model-checklist 模式需要 --type 参数")
+        result = generate_model_checklist(args.type, args.scope or None)
+        if "error" in result:
+            print(json.dumps(result, ensure_ascii=False))
+            sys.exit(1)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        sys.exit(0)
+
+    # --migrate 模式：模板迁移分析
+    if args.migrate:
+        if not args.doc_path or not args.type:
+            parser.error("--migrate 模式需要 doc_path 和 --type 参数")
+        result = analyze_migration(Path(args.doc_path), args.type)
+        if "error" in result:
+            print(json.dumps(result, ensure_ascii=False))
+            sys.exit(1)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        sys.exit(0)
+
+    # --transform 模式：全量改造分析（结构+内容+链路）
+    if args.transform:
+        if not args.doc_path or not args.type:
+            parser.error("--transform 模式需要 doc_path 和 --type 参数")
+        result = analyze_transformation(Path(args.doc_path), args.type)
+        if "error" in result:
+            print(json.dumps(result, ensure_ascii=False))
+            sys.exit(1)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        sys.exit(0)
+
     if not args.doc_path or not args.type:
-        parser.error("doc_path 和 --type 为必填项（--list-rules 模式除外）")
+        parser.error("doc_path 和 --type 为必填项（--list-rules / --model-checklist / --migrate 模式除外）")
 
     doc_path = Path(args.doc_path)
     if not doc_path.exists():

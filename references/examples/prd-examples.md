@@ -88,9 +88,9 @@
 ### 填写示例
 
 
-| 功能编号 | 故事编号 | 功能名称 | 优先级 | 交互方式 | 技术实现单元 | 业务规则 | 验收标准 |
-|---------|---------|---------|--------|---------|------------|---------|---------|
-| TICKET-001 | STORY-USER-DEFAULT-001 | 客户信息聚合展示 | P0 | 页面：工单详情页-客户信息区块 | ticket-service | RULE-USER-DEFAULT-002 | ACC-USER-DEFAULT-001 |
+| 功能编号 | 故事编号 | 功能名称 | 优先级 | 交互方式 | 业务规则 | 验收标准 |
+|---------|---------|---------|--------|---------|---------|---------|
+| TICKET-001 | STORY-USER-DEFAULT-001 | 客户信息聚合展示 | P0 | 页面：工单详情页-客户信息区块 | RULE-USER-DEFAULT-002 | ACC-USER-DEFAULT-001 |
 | TICKET-002 | STORY-USER-DEFAULT-003 | 工单快速创建 | P0 | 页面：工单创建页 + 悬浮快捷入口 | ticket-service, notification-service | RULE-USER-DEFAULT-001 | ACC-USER-DEFAULT-002 |
 | TICKET-003 | STORY-USER-DEFAULT-002 | 超期工单筛选 | P0 | 页面：工单列表页-筛选栏 | ticket-service | RULE-USER-DEFAULT-001, RULE-USER-DEFAULT-003 | ACC-USER-DEFAULT-003 |
 
