@@ -106,16 +106,7 @@
 
 ## 产物组织方式自动推断
 
-当 AGENTS.md 未定义产物组织方式时，AI 通过以下启发式规则自动推断，**不停止流程**：
-
-1. **搜索常见产物目录**：检查项目根目录是否存在 `docs/`、`doc/`、`specs/`、`documents/`、`design/` 等目录
-2. **搜索文件特征**：在项目目录内搜索文件名匹配 `PRD-*.md`、`交互设计-*.md`、`ui-*.html`、`TECH-*.md`、`TEST-*.md` 的文件（也兼容 `prd-*.md`、`UI-*.html`、`技术方案.md`、`测试报告-*.md` 等旧格式）
-3. **推断逻辑**：
-   - 发现 `docs/modules/` 和 `docs/tech/` 并存 → 混合聚合（业务产物按模块、技术方案按服务）
-   - 发现 `docs/prd/`、`docs/tech/` 等子目录 → 按步骤聚合
-   - 发现 `docs/订单模块/`、`docs/用户模块/` 等子目录 → 按模块聚合（旧模式，可能包含模块内的技术方案）
-   - 未发现任何产物目录或特征文件 → 询问用户期望的组织方式（只问一次，不阻塞），同时默认使用项目根目录下的 `docs/` 作为产物根目录
-4. **告知用户**：自动推断完成后，向用户说明推断结果，如"未在 AGENTS.md 中找到产物组织方式，已自动推断为按步骤聚合：docs/prd/、docs/interaction/、docs/ui/、docs/tech/、docs/test/"
+当 AGENTS.md 未定义产物组织方式时，AI 通过启发式规则自动推断。详细推断逻辑、目录示例和编号规范参见 [`references/workflow/product-organization.md`](product-organization.md)。
 
 ## 关键规则
 
