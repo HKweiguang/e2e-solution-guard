@@ -30,7 +30,8 @@
 AI 自动执行：
 
 ```bash
-SCRIPT=$(find ~ -path "*/e2e-solution-guard/scripts/doc-audit.py" 2>/dev/null | head -1)
+SCRIPT="$HOME/.agents/skills/e2e-solution-guard/scripts/doc-audit.py"
+[ -f "$SCRIPT" ] || SCRIPT=$(find ~/.agents/skills -name "doc-audit.py" -path "*/e2e-solution-guard/*" 2>/dev/null | head -1)
 python3 "$SCRIPT" <产物路径> --type <type> --transform
 ```
 
@@ -86,18 +87,26 @@ python3 "$SCRIPT" <产物路径> --type <type> --transform
 
 ### T3. 全量复验
 
-改造完成后自动执行：
+改造完成后自动执行，分阶段串行：
+
+**阶段一：结构 + 链路复验（机械类检查）**
 
 ```bash
 # 结构 + 内容复验（禁止沿用 T1 结果）
 python3 "$SCRIPT" <产物路径> --type <type> --transform
 
-# 语义检查
-python3 "$SCRIPT" --type <type> --model-checklist
-
-# 链路检查
+# 链路检查（机械规则）
 python3 "$SCRIPT" <产物路径> --type <type> \
   --upstream <上游> --top-level <顶层定义>
+```
+
+- `--transform` 和链路检查均无 blocking / warning → **通过**，进入阶段二
+- 存在问题 → **停止**，修复后重新执行阶段一
+
+**阶段二：语义检查（仅在阶段一通过后启动）**
+
+```bash
+python3 "$SCRIPT" --type <type> --model-checklist
 ```
 
 **通过标准**：

@@ -72,11 +72,12 @@ class ExtractedData:
 
 @dataclass
 class AuditContext:
-    """审计上下文，包含上游文档和顶层定义提取的数据"""
+    """审计上下文，包含上游文档、顶层定义和 peer 文档提取的数据"""
     doc_path: Path
     doc_type: str
     upstream_docs: Dict[str, ExtractedData] = field(default_factory=dict)
     top_level_docs: Dict[str, ExtractedData] = field(default_factory=dict)
+    peer_docs: Dict[str, ExtractedData] = field(default_factory=dict)
     user_data: Dict[str, Any] = field(default_factory=dict)
     is_template: bool = False  # 产物模板豁免标记
 
@@ -573,27 +574,28 @@ class BidirectionalMappingRule(Rule):
                 upstream_data.raw_text
             ))
 
-        # 3. 从当前文档提取功能点引用
-        tech_extractor = MarkdownExtractor(data.raw_text)
+        # 3. 从当前文档及 peer 文档提取功能点引用（支持多对一映射）
         tech_feature_ids: Set[str] = set()
-        # §4 接口设计（含接口汇总表）的「对应功能点」列
-        tech_feature_ids.update(tech_extractor.table_column_values(r"§4\s+接口设计", "对应功能点"))
-        # 头部「覆盖功能点」行
-        header_match = re.search(r"\*\*覆盖功能点\*\*[:：]?\s*(.+?)(?:\n|$)", data.raw_text)
-        if header_match:
-            tech_feature_ids.update(re.findall(
-                r"\b[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+\b",
-                header_match.group(1)
-            ))
+        for doc_data in [data] + list(ctx.peer_docs.values()):
+            tech_extractor = MarkdownExtractor(doc_data.raw_text)
+            # §4 接口设计（含接口汇总表）的「对应功能点」列
+            tech_feature_ids.update(tech_extractor.table_column_values(r"§4\s+接口设计", "对应功能点"))
+            # 头部「覆盖功能点」行
+            header_match = re.search(r"\*\*覆盖功能点\*\*[:：]?\s*(.+?)(?:\n|$)", doc_data.raw_text)
+            if header_match:
+                tech_feature_ids.update(re.findall(
+                    r"\b[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+\b",
+                    header_match.group(1)
+                ))
 
-        # 4. 正向检查：PRD 有但当前文档没有
+        # 4. 正向检查：PRD 有但当前文档及 peer 文档都没有
         missing_in_current = prd_feature_ids - tech_feature_ids
         for fp_id in missing_in_current:
             issues.append(Issue(
                 check_id=self.check_id,
                 severity=self.forward_severity,
                 location="双向映射",
-                message=f"PRD 功能点 {fp_id} 在技术方案中无对应引用"
+                message=f"PRD 功能点 {fp_id} 在技术方案及 peer 文档中均无对应引用"
             ))
 
         # 5. 反向检查：当前文档有但 PRD 没有
@@ -776,15 +778,34 @@ class ContractTraceabilityRule(Rule):
             if not ids:
                 continue
 
-            # 检查这些编号是否在当前产物中出现
-            missing = ids - self._find_ids_in_text(ids, data.raw_text)
+            # 若当前产物声明了覆盖功能点范围，只检查范围内的编号
+            coverage_scope = self._get_coverage_scope(data)
+            if coverage_scope:
+                if id_type == "功能编号":
+                    ids = ids & coverage_scope
+                elif id_type == "故事编号":
+                    # 故事编号与功能编号相关：STORY-USER-CST-001 对应 USER-CST-001
+                    related = {sid for sid in ids
+                               if any(re.search(rf'\b{re.escape(fid)}\b', sid) for fid in coverage_scope)}
+                    ids = related
+                # 对于错误码/规则编号/验收项编号，交互设计等产物通常不覆盖，已在契约矩阵中控制
+                if not ids:
+                    continue
+
+            # 检查这些编号是否在当前产物或 peer 文档中出现（支持多对一映射）
+            found_in_current = self._find_ids_in_text(ids, data.raw_text)
+            found_in_peer = set()
+            for peer_data in ctx.peer_docs.values():
+                found_in_peer.update(self._find_ids_in_text(ids, peer_data.raw_text))
+            all_found = found_in_current | found_in_peer
+            missing = ids - all_found
             for id_str in sorted(missing):
                 issues.append(Issue(
                     check_id=self.check_id,
                     severity="blocking",
                     location="编号引用契约",
                     message=f"契约要求：{id_type} 必须在当前产物中引用（{downstream_location}）。"
-                            f"PRD 中定义的 {id_str} 在当前产物中未找到"
+                            f"PRD 中定义的 {id_str} 在当前产物及 peer 文档中均未找到"
                 ))
 
         return issues
@@ -870,6 +891,43 @@ class ContractTraceabilityRule(Rule):
                 found.add(id_str)
         return found
 
+    def _get_coverage_scope(self, data: ExtractedData) -> Optional[Set[str]]:
+        """从当前产物头部提取覆盖功能点范围，支持单编号和范围格式（如 USER-001~USER-005）"""
+        match = re.search(r'覆盖功能点[：:]\s*([A-Za-z0-9_\-~,\s]+)', data.raw_text)
+        if not match:
+            return None
+        ids = set()
+        for part in match.group(1).split(','):
+            part = part.strip()
+            if not part:
+                continue
+            ids.update(self._parse_id_range(part))
+        return ids if ids else None
+
+    def _parse_id_range(self, range_str: str) -> Set[str]:
+        """解析编号范围，如 USER-CST-001~USER-CST-005 或 USER-CST-001 - USER-CST-005"""
+        range_str = range_str.replace(' ', '')
+        sep = None
+        for s in ('~', '－', '- '):
+            if s in range_str:
+                sep = s
+                break
+        if sep is None:
+            return {range_str}
+        parts = range_str.split(sep, 1)
+        if len(parts) != 2:
+            return {range_str}
+        start, end = parts
+        start_m = re.search(r'^(.+?-)(\d+)$', start)
+        end_m = re.search(r'^(.+?-)(\d+)$', end)
+        if not start_m or not end_m or start_m.group(1) != end_m.group(1):
+            return {start, end}
+        prefix = start_m.group(1)
+        s_num = int(start_m.group(2))
+        e_num = int(end_m.group(2))
+        width = len(start_m.group(2))
+        return {f"{prefix}{str(i).zfill(width)}" for i in range(s_num, e_num + 1)}
+
 
 class BrokenInternalLinkRule(Rule):
     """检查文档内部的 §x 交叉引用是否指向存在的章节"""
@@ -894,7 +952,13 @@ class BrokenInternalLinkRule(Rule):
         # 2. 提取文档中实际存在的章节编号
         actual_sections: Set[str] = set()
         for level, title in data.sections:
+            # 先匹配 § 前缀格式（如 §5.13）
             m = re.search(r"§(\d+(?:\.\d+)*)\s", title)
+            if m:
+                actual_sections.add(m.group(1))
+                continue
+            # 再匹配 heading 中纯数字编号格式（如 ### 5.13 品系基因关联表）
+            m = re.search(r"\b(\d+(?:\.\d+)*)\s", title)
             if m:
                 actual_sections.add(m.group(1))
 
@@ -1066,6 +1130,12 @@ class UpstreamRefRule(Rule):
             return issues
 
         doc_dir = ctx.doc_path.parent
+        # 收集已通过 --upstream 参数传入的文档路径（用于路径匹配，避免跨目录误报）
+        upstream_paths = set()
+        for up_path in ctx.upstream_docs.keys():
+            upstream_paths.add(Path(up_path).name)
+            upstream_paths.add(Path(up_path).stem)
+
         for row in table[1:]:
             if len(row) < 1:
                 continue
@@ -1073,12 +1143,18 @@ class UpstreamRefRule(Rule):
             if re.match(r"^:?-+:?$", doc_name):
                 continue
             possible = [doc_name, doc_name + ".md"]
-            found = any((doc_dir / name).exists() for name in possible)
-            if not found and "规范" not in doc_name and "AGENTS" not in doc_name:
+            # 检查1：产物当前目录是否存在
+            found_local = any((doc_dir / name).exists() for name in possible)
+            # 检查2：是否已通过 --upstream 参数传入（文件名或 stem 匹配）
+            found_via_arg = any(
+                name in upstream_paths or Path(name).stem in upstream_paths
+                for name in possible
+            )
+            if not found_local and not found_via_arg and "规范" not in doc_name and "AGENTS" not in doc_name:
                 issues.append(Issue(
                     check_id=self.check_id, severity="warning",
                     location="文件头部",
-                    message=f"上游文档 '{doc_name}' 在当前目录未找到，请确认路径"
+                    message=f"上游文档 '{doc_name}' 在当前目录未找到，且未通过 --upstream 参数传入，请确认路径"
                 ))
         return issues
 
@@ -1485,6 +1561,9 @@ class TableColumnCompletenessRule(Rule):
             header = [c.strip() for c in table[0]]
             if re.match(r"^:?-+:?$", header[0]):
                 continue
+            # 跳过索引表（第一列为"索引名"）
+            if header[0] == "索引名":
+                continue
             for col in self.required_cols:
                 if col not in header:
                     issues.append(Issue(
@@ -1565,7 +1644,11 @@ class InterfaceTestCoverageRule(Rule):
 
 
 class SVGExistRule(Rule):
-    """交互设计: 检查每个页面是否包含 SVG 线框图"""
+    """交互设计: 检查每个页面是否包含 SVG 页面结构图。
+
+    页面识别逻辑与 PageStructureRule 一致：所有 ##（level 2）heading 视为页面，
+    第一个 ## 为产物级章节（设计系统引用）予以跳过。
+    """
 
     def __init__(self, check_id: str):
         self.check_id = check_id
@@ -1574,25 +1657,39 @@ class SVGExistRule(Rule):
         if ctx.is_template:
             return []
         extractor = MarkdownExtractor(data.raw_text)
-        # 遍历所有页面章节（一级标题匹配页面编号格式）
+
+        # 收集所有 level 2 heading 的位置和标题，与 PageStructureRule 保持一致
+        pages: List[Tuple[int, str]] = []
+        for i, n in enumerate(extractor.nodes):
+            if n["type"] == "heading" and n["level"] == 2:
+                pages.append((i, n["text"]))
+
+        # 第一个 ## 是产物级章节（如"设计系统引用"），跳过
+        if len(pages) > 1:
+            pages = pages[1:]
+        elif len(pages) == 1:
+            # 只有一个 level 2 heading，可能是只有产物级章节没有页面，也可能是只有一个页面
+            # 保守处理：当作页面检查（至少能发现没有 SVG 的问题）
+            pass
+        else:
+            return []
+
         issues = []
-        in_page = False
-        page_title = ""
-        page_content = ""
-        for line in extractor.lines:
-            if re.search(r"^##\s+§\d+\s+[A-Z]+(?:-[A-Z]+)*-\d+", line):
-                if in_page and "<svg" not in page_content:
-                    issues.append(Issue(check_id=self.check_id, severity="blocking",
-                                        location=page_title, message="页面缺少 SVG 线框图"))
-                in_page = True
-                page_title = line.strip()
-                page_content = ""
-            elif in_page:
-                page_content += line + "\n"
-        # 检查最后一个页面
-        if in_page and "<svg" not in page_content:
-            issues.append(Issue(check_id=self.check_id, severity="blocking",
-                                location=page_title, message="页面缺少 SVG 线框图"))
+        for page_idx, page_title in pages:
+            # 收集该页面下的所有内容（直到下一个 level <= 2 的 heading）
+            page_start_line = extractor.nodes[page_idx]["line"]
+            page_end_line = len(extractor.lines)
+            for n in extractor.nodes[page_idx + 1:]:
+                if n["type"] == "heading" and n["level"] <= 2:
+                    page_end_line = n["line"]
+                    break
+            page_content = "\n".join(extractor.lines[page_start_line:page_end_line])
+
+            if "<svg" not in page_content:
+                issues.append(Issue(
+                    check_id=self.check_id, severity="blocking",
+                    location=page_title, message="页面缺少 SVG 页面结构图"
+                ))
         return issues
 
 
@@ -1876,6 +1973,11 @@ class InterfaceInventoryMatchRule(Rule):
                         path = row[path_idx].strip().strip("`\"'")
                         if path:
                             interfaces.add((method, path))
+        # 3. 解析 **字段**：值 格式（如 **URL**：`POST /api/v1/auth/login`）
+        sec4_text = extractor.section_text(r"§4\s+接口设计")
+        if sec4_text:
+            for m in re.finditer(r'\*\*URL\*\*[\s：:]*[`"\']?([A-Z]+)\s+(\S+)[`"\']?', sec4_text):
+                interfaces.add((m.group(1), m.group(2).strip("`\"'")))
         return interfaces
 
     def _extract_sec4_summary_interfaces(self, extractor: MarkdownExtractor) -> Set[Tuple[str, str]]:
@@ -2133,7 +2235,32 @@ class TechInterfaceElementsRule(Rule):
                             message=f"表格格式接口定义缺少要素: {elem}"
                         ))
 
-        # 3. 如果 §4 存在但完全未找到接口定义，给出提示
+        # 3. **字段**：值 格式接口定义（如 **URL**：`POST /api/v1/auth/login`）
+        for m in re.finditer(r'\*\*URL\*\*[\s：:]*[`"\']([A-Z]+)\s+(\S+)[`"\']([\s\S]*?)(?=\n###\s+§|\Z)', sec4_text):
+            found_any = True
+            method, path, block = m.group(1), m.group(2).strip("`\"'"), m.group(3)
+            has_elements: Dict[str, bool] = {e: False for e in self.required_elements}
+            has_elements["URL"] = True
+            # 方法：从 URL 行已解析，或块中有 **方法**：
+            if "**方法**" in block:
+                has_elements["方法"] = True
+            if "**请求参数**" in block:
+                has_elements["请求参数"] = True
+            if "**响应结构**" in block:
+                has_elements["响应结构"] = True
+            if "**错误码**" in block:
+                has_elements["错误码"] = True
+            if "**版本**" in block or "**版本号**" in block:
+                has_elements["版本号"] = True
+            for elem, found in has_elements.items():
+                if not found:
+                    issues.append(Issue(
+                        check_id=self.check_id, severity="warning",
+                        location=f"接口 {method} {path}",
+                        message=f"**字段格式接口定义缺少要素: {elem}"
+                    ))
+
+        # 4. 如果 §4 存在但完全未找到接口定义，给出提示
         if sec4_text and not found_any:
             issues.append(Issue(
                 check_id=self.check_id, severity="info",
@@ -2556,16 +2683,24 @@ class VersionConsistencyRule(Rule):
 class UpstreamIdExistenceRule(Rule):
     """通用: 检查当前产物引用的 ID 在上游文档中是否存在"""
 
-    def __init__(self, check_id: str, id_pattern: str, location_desc: str):
+    def __init__(self, check_id: str, id_pattern: str, location_desc: str,
+                 exclude_prefixes: Optional[Set[str]] = None):
         self.check_id = check_id
         self.id_pattern = id_pattern
         self.location_desc = location_desc
+        self.exclude_prefixes = exclude_prefixes or set()
 
     def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
         if ctx.is_template or not ctx.upstream_docs:
             return []
         # 收集当前产物中的引用 ID
         current_ids = set(re.findall(self.id_pattern, data.raw_text))
+        # 排除指定前缀的 ID（如交互设计的页面编号 PAGE-XXX 独立分配，无需在上游存在）
+        if self.exclude_prefixes:
+            current_ids = {
+                id_str for id_str in current_ids
+                if not any(id_str.startswith(prefix + "-") for prefix in self.exclude_prefixes)
+            }
         if not current_ids:
             return []
         # 收集所有上游文档中的 ID
@@ -3004,6 +3139,23 @@ class TopLevelStateValueRule(Rule):
             r'\b[A-Za-z][A-Za-z0-9_]*(?:-[A-Za-z][A-Za-z0-9_]*)*-\d+\b',
             '', section_text
         )
+        # 新增：清除 "XXX-顶层定义 §N" 类文档引用，避免 PRD/TECH/交互设计 被误识别为状态值
+        section_text = re.sub(
+            r'\b(?:PRD|TECH|交互设计|UI|技术方案)[\w\-]*\s*顶层定义',
+            '顶层定义', section_text
+        )
+
+        # 清除 Markdown 表格的表头行和分隔行，避免表头词汇（如"PRD 业务状态"）被误识别为状态值
+        lines = section_text.split('\n')
+        filtered = []
+        i = 0
+        while i < len(lines):
+            if i + 1 < len(lines) and re.match(r'^\s*\|[-:\s|]+\|\s*$', lines[i + 1]):
+                i += 2  # 跳过表头行和分隔行
+                continue
+            filtered.append(lines[i])
+            i += 1
+        section_text = '\n'.join(filtered)
 
         found = set(re.findall(self.state_pattern, section_text))
 
@@ -3932,7 +4084,7 @@ INTERACTION_RULES: List[Rule] = [
     PageFlowColumnsRule("I-A8", ["前置条件", "用户操作", "系统响应", "反馈方式", "后置状态"]),
     ExceptionColumnsRule("I-A9", ["异常场景", "触发条件", "系统响应", "用户感知", "恢复路径"]),
     PagePrefixConsistencyRule("I-B1"),
-    UpstreamIdExistenceRule("I-B2", r"[A-Z]+(?:-[A-Z]+)*-\d+", "页面编号"),
+    UpstreamIdExistenceRule("I-B2", r"[A-Z]+(?:-[A-Z]+)*-\d+", "页面编号", exclude_prefixes={"PAGE"}),
     VersionConsistencyRule("I-B3"),
     InteractionJumpTargetRule("I-B4"),
     TableFormatRule("I-A12"),
@@ -4097,7 +4249,7 @@ _build_registry()
 class AuditEngine:
     """审计引擎：提取数据 → 加载规则 → 执行检查 → 汇总结果"""
 
-    def __init__(self, doc_path: str, doc_type: str, upstream_paths: Optional[List[str]] = None, top_level_paths: Optional[List[str]] = None):
+    def __init__(self, doc_path: str, doc_type: str, upstream_paths: Optional[List[str]] = None, top_level_paths: Optional[List[str]] = None, peer_paths: Optional[List[str]] = None):
         self.doc_path = Path(doc_path)
         self.doc_type = doc_type
         self.raw_text = self.doc_path.read_text(encoding="utf-8")
@@ -4105,6 +4257,7 @@ class AuditEngine:
         self.ctx = AuditContext(doc_path=self.doc_path, doc_type=doc_type)
         self._load_upstream(upstream_paths or [])
         self._load_top_level(top_level_paths or [])
+        self._load_peer(peer_paths or [])
 
     def _extract(self) -> ExtractedData:
         if self.doc_path.suffix == ".html":
@@ -4136,6 +4289,16 @@ class AuditEngine:
                     self.ctx.top_level_docs[str(p)] = HTMLExtractor(text).extract()
                 else:
                     self.ctx.top_level_docs[str(p)] = MarkdownExtractor(text).extract()
+
+    def _load_peer(self, peer_paths: List[str]):
+        for peer_path in peer_paths:
+            p = Path(peer_path)
+            if p.exists():
+                text = p.read_text(encoding="utf-8")
+                if p.suffix == ".html":
+                    self.ctx.peer_docs[str(p)] = HTMLExtractor(text).extract()
+                else:
+                    self.ctx.peer_docs[str(p)] = MarkdownExtractor(text).extract()
 
     def run(self) -> dict:
         self.ctx.is_template = self._detect_template()
@@ -4716,6 +4879,7 @@ def main():
     parser.add_argument("--type", choices=list(RULE_SETS.keys()) + ["code-audit"], help="产物类型")
     parser.add_argument("--upstream", action="append", default=[], help="上游文档路径（可多次指定）")
     parser.add_argument("--top-level", action="append", default=[], help="顶层定义文件路径（可多次指定）")
+    parser.add_argument("--peer-doc", action="append", default=[], help="同类型 peer 产物路径（多对一映射场景，可多次指定）")
     parser.add_argument("--scan-downstream", metavar="DIR", default="", help="扫描下游引用")
     parser.add_argument("--list-rules", action="store_true", help="列出当前支持的所有规则 ID")
     parser.add_argument("--dry-run", action="store_true", help="只列出本次会检查的规则，不执行检查")
@@ -4784,7 +4948,7 @@ def main():
         }, ensure_ascii=False, indent=2))
         sys.exit(0)
 
-    engine = AuditEngine(str(doc_path), args.type, upstream_paths=args.upstream, top_level_paths=args.top_level)
+    engine = AuditEngine(str(doc_path), args.type, upstream_paths=args.upstream, top_level_paths=args.top_level, peer_paths=args.peer_doc)
 
     if args.dry_run:
         is_template = engine._detect_template()
