@@ -223,47 +223,42 @@
 <!-- ===== 编号规范 ===== -->
 <div class="card">
     <h2>🔢 统一编号规范：天生支持多业务端</h2>
-    <p>所有产物使用同一种格式，项目从单业务端扩展到多业务端时，编号格式不需要改变。</p>
+    <p>所有产物使用同一种格式，新增业务端时仅需分配新的业务端标识，编号格式不变。</p>
     <div class="diagram">
         <svg viewBox="0 0 780 260" xmlns="http://www.w3.org/2000/svg">
             <!-- Table header -->
             <rect x="20" y="20" width="740" height="36" rx="6" fill="#0f172a"/>
             <text x="110" y="44" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">产物</text>
             <text x="300" y="44" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">格式</text>
-            <text x="520" y="44" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">单业务端示例</text>
-            <text x="680" y="44" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">多业务端示例</text>
+            <text x="600" y="44" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">示例</text>
 
             <!-- Row 1: 功能编号 -->
             <rect x="20" y="60" width="740" height="36" rx="0" fill="#f8fafc"/>
             <text x="110" y="84" text-anchor="middle" fill="#334155" font-size="11">功能编号</text>
             <text x="300" y="84" text-anchor="middle" fill="#475569" font-size="11">{模块}-{业务端}-{序号}</text>
-            <text x="520" y="84" text-anchor="middle" fill="#059669" font-size="11" font-family="monospace">USER-DEFAULT-001</text>
-            <text x="680" y="84" text-anchor="middle" fill="#059669" font-size="11" font-family="monospace">USER-CONSUMER-001</text>
+            <text x="600" y="84" text-anchor="middle" fill="#059669" font-size="11" font-family="monospace">USER-DEFAULT-001、USER-CONSUMER-001</text>
 
             <!-- Row 2: 页面编号 -->
             <rect x="20" y="100" width="740" height="36" rx="0" fill="#fff"/>
             <text x="110" y="124" text-anchor="middle" fill="#334155" font-size="11">页面编号</text>
             <text x="300" y="124" text-anchor="middle" fill="#475569" font-size="11">PAGE-{业务端}-{平台}-{页面名}-{序号}</text>
-            <text x="520" y="124" text-anchor="middle" fill="#059669" font-size="11" font-family="monospace">PAGE-DEFAULT-WEB-HOME-001</text>
-            <text x="680" y="124" text-anchor="middle" fill="#059669" font-size="11" font-family="monospace">PAGE-CONSUMER-WEB-HOME-001</text>
+            <text x="600" y="124" text-anchor="middle" fill="#059669" font-size="11" font-family="monospace">PAGE-DEFAULT-WEB-HOME-001、PAGE-CONSUMER-APP-HOME-001</text>
 
             <!-- Row 3: 接口编号 -->
             <rect x="20" y="140" width="740" height="36" rx="0" fill="#f8fafc"/>
             <text x="110" y="164" text-anchor="middle" fill="#334155" font-size="11">接口编号</text>
             <text x="300" y="164" text-anchor="middle" fill="#475569" font-size="11">{模块}-{业务端}-API-{序号}</text>
-            <text x="520" y="164" text-anchor="middle" fill="#059669" font-size="11" font-family="monospace">ORDER-DEFAULT-API-001</text>
-            <text x="680" y="164" text-anchor="middle" fill="#059669" font-size="11" font-family="monospace">ORDER-CONSUMER-API-001</text>
+            <text x="600" y="164" text-anchor="middle" fill="#059669" font-size="11" font-family="monospace">ORDER-DEFAULT-API-001、ORDER-CONSUMER-API-001</text>
 
             <!-- Row 4: 用例编号 -->
             <rect x="20" y="180" width="740" height="36" rx="0" fill="#fff"/>
             <text x="110" y="204" text-anchor="middle" fill="#334155" font-size="11">用例编号</text>
             <text x="300" y="204" text-anchor="middle" fill="#475569" font-size="11">TC-{模块}-{业务端}-{序号}</text>
-            <text x="520" y="204" text-anchor="middle" fill="#059669" font-size="11" font-family="monospace">TC-ORDER-DEFAULT-001</text>
-            <text x="680" y="204" text-anchor="middle" fill="#059669" font-size="11" font-family="monospace">TC-ORDER-CONSUMER-001</text>
+            <text x="600" y="204" text-anchor="middle" fill="#059669" font-size="11" font-family="monospace">TC-ORDER-DEFAULT-001、TC-ORDER-CONSUMER-001</text>
 
             <!-- Note -->
             <rect x="20" y="230" width="740" height="24" rx="4" fill="#fffbeb" stroke="#f59e0b" stroke-width="1"/>
-            <text x="390" y="247" text-anchor="middle" fill="#92400e" font-size="11">业务端 = 使用者群体（消费者/运营/管理）· 平台 = 设备端（WEB/APP/MP）· 单业务端固定为 DEFAULT</text>
+            <text x="390" y="247" text-anchor="middle" fill="#92400e" font-size="11">业务端 = 使用者群体（消费者/运营/管理）· 平台 = 设备端（WEB/APP/MP）· 业务端标识由 PRD-顶层定义分配，只有一个业务端时为 DEFAULT</text>
         </svg>
     </div>
 </div>

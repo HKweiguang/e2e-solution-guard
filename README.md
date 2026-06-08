@@ -164,16 +164,16 @@ docs/
 
 所有产物统一使用 `{前缀}-{模块缩写}-{业务端标识}-{序号}` 格式，天生支持多业务端扩展：
 
-| 产物 | 格式 | 单业务端示例 | 多业务端示例 |
-|------|------|-------------|-------------|
-| 功能编号 | `{模块}-{业务端}-{序号}` | `USER-DEFAULT-001` | `USER-CONSUMER-001` |
-| 页面编号 | `PAGE-{业务端}-{平台}-{页面名}-{序号}` | `PAGE-DEFAULT-WEB-HOME-001` | `PAGE-CONSUMER-WEB-HOME-001` |
-| 接口编号 | `{模块}-{业务端}-API-{序号}` | `ORDER-DEFAULT-API-001` | `ORDER-CONSUMER-API-001` |
-| 用例编号 | `TC-{模块}-{业务端}-{序号}` | `TC-ORDER-DEFAULT-001` | `TC-ORDER-CONSUMER-001` |
+| 产物 | 格式 | 示例 |
+|------|------|------|
+| 功能编号 | `{模块}-{业务端}-{序号}` | `USER-DEFAULT-001`、`ORDER-CONSUMER-001` |
+| 页面编号 | `PAGE-{业务端}-{平台}-{页面名}-{序号}` | `PAGE-DEFAULT-WEB-HOME-001`、`PAGE-CONSUMER-APP-HOME-001` |
+| 接口编号 | `{模块}-{业务端}-API-{序号}` | `ORDER-DEFAULT-API-001` |
+| 用例编号 | `TC-{模块}-{业务端}-{序号}` | `TC-ORDER-DEFAULT-001` |
 
-> **业务端不是设备端**：业务端指使用系统功能的业务群体（消费者端、运营端、管理端），设备端（WEB/APP/MP）在页面编号中叫"平台"。单业务端项目固定为 `DEFAULT`。
+> **业务端不是设备端**：业务端指使用系统功能的业务群体（消费者端、运营端、管理端），设备端（WEB/APP/MP）在页面编号中叫"平台"。业务端标识由 PRD-顶层定义 §2.2 分配，只有一个业务端时固定为 `DEFAULT`。
 
-多业务端项目：
+产物组织：
 - **PRD**：一个模块一份，内部按业务端分章节；用户故事和用户旅程按业务端分表展示
 - **交互设计**：按业务端分文件
 - **UI**：按业务端+设备分文件
@@ -193,8 +193,7 @@ e2e-solution-guard/
 │   │   ├── interaction-step.md      # 交互设计模板
 │   │   ├── ui-step.md               # UI 原型模板（HTML）
 │   │   ├── tech-step.md             # 技术方案模板
-│   │   ├── test-step.md             # 测试报告模板
-│   │   └── code-audit-report.md     # 代码审计报告模板
+│   │   └── test-step.md             # 测试报告模板
 │   ├── top-level/                   # 顶层定义模板
 │   │   ├── prd-top-level-template.md
 │   │   ├── interaction-top-level-template.md
@@ -205,12 +204,21 @@ e2e-solution-guard/
 │   │   ├── interaction-examples.md
 │   │   ├── tech-examples.md
 │   │   └── test-examples.md
+│   ├── checklists/                  # 审计检查清单
+│   │   ├── prd-checklist.md
+│   │   ├── interaction-checklist.md
+│   │   ├── ui-checklist.md
+│   │   ├── tech-checklist.md
+│   │   ├── test-checklist.md
+│   │   └── code-audit-checklist.md
 │   └── workflow/                    # 执行流程
 │       ├── idea-evaluation.md       # 想法评估
 │       ├── document-workflow.md     # 产物生成/修改
 │       ├── change-propagation.md    # 变更传播
 │       ├── code-verification.md     # 代码验证
 │       ├── audit-procedure.md       # 审计策略
+│       ├── audit-batch.md           # 批量审计
+│       ├── code-audit-report.md     # 代码审计报告模板
 │       └── product-organization.md  # 产物组织与编号规范
 └── scripts/
     ├── doc-audit.py                 # 一致性审计脚本（标准库 only）

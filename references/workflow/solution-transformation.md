@@ -105,14 +105,10 @@ python3 "$SCRIPT" <产物路径> --type <type> \
 
 **阶段二：语义检查（仅在阶段一通过后启动）**
 
-```bash
-python3 "$SCRIPT" --type <type> --model-checklist
-```
-
 **通过标准**：
 - `missing_sections` 为空
 - `content_gaps` 无 blocking 级问题
-- `--model-checklist` 全部 `[模型]` 项通过（或存疑但已说明原因）
+- 语义检查清单全部通过（或存疑但已说明原因）
 
 **硬性规则**：
 - TodoList 非全 done → 禁止进入复验

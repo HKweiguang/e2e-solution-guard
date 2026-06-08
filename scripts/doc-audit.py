@@ -722,7 +722,11 @@ class ContractTraceabilityRule(Rule):
         self.check_id = check_id
 
     # 编号类型 → 正则模式的映射
+    # 非功能编号的前缀集合，用于 _extract_ids_by_type 过滤
+    NON_FEATURE_PREFIXES = {"STORY", "RULE", "ERR", "ACC", "PAGE"}
+
     ID_PATTERNS = {
+        # 功能编号格式：模块前缀-业务端-序号；提取后通过 NON_FEATURE_PREFIXES 过滤误匹配
         "功能编号": r"[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+",
         "故事编号": r"STORY-[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+",
         "规则编号": r"RULE-[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+",
@@ -784,9 +788,13 @@ class ContractTraceabilityRule(Rule):
                 if id_type == "功能编号":
                     ids = ids & coverage_scope
                 elif id_type == "故事编号":
-                    # 故事编号与功能编号相关：STORY-USER-CST-001 对应 USER-CST-001
-                    related = {sid for sid in ids
-                               if any(re.search(rf'\b{re.escape(fid)}\b', sid) for fid in coverage_scope)}
+                    # 从上游 PRD 中提取故事编号→对应功能编号的精确映射（PRD §2 用户故事表格）
+                    story_to_features = self._extract_story_feature_mapping(upstream_prd)
+                    related = set()
+                    for sid in ids:
+                        features = story_to_features.get(sid, set())
+                        if features & coverage_scope:
+                            related.add(sid)
                     ids = related
                 # 对于错误码/规则编号/验收项编号，交互设计等产物通常不覆盖，已在契约矩阵中控制
                 if not ids:
@@ -881,7 +889,16 @@ class ContractTraceabilityRule(Rule):
         pattern = self.ID_PATTERNS.get(id_type)
         if not pattern:
             return set()
-        return set(re.findall(pattern, prd_data.raw_text))
+        ids = set(re.findall(pattern, prd_data.raw_text))
+        if id_type == "功能编号":
+            # 过滤被误匹配的其他编号类型（STORY/RULE/ERR/ACC/PAGE）
+            filtered = set()
+            for id_str in ids:
+                first_part = id_str.split("-")[0]
+                if first_part not in self.NON_FEATURE_PREFIXES:
+                    filtered.add(id_str)
+            ids = filtered
+        return ids
 
     def _find_ids_in_text(self, ids: Set[str], text: str) -> Set[str]:
         """检查一组编号是否在给定文本中出现"""
@@ -891,9 +908,40 @@ class ContractTraceabilityRule(Rule):
                 found.add(id_str)
         return found
 
+    def _extract_story_feature_mapping(self, upstream_prd) -> Dict[str, Set[str]]:
+        """从上游 PRD 的 §2 用户故事表格中提取故事编号→对应功能编号的映射"""
+        mapping: Dict[str, Set[str]] = {}
+        text = upstream_prd.raw_text
+        # 定位用户故事表格区域（§2 用户故事）
+        section_match = re.search(r'##\s*§2\s+用户故事.*?(?=##\s*§|\Z)', text, re.DOTALL)
+        if not section_match:
+            return mapping
+        section_text = section_match.group(0)
+        # 提取表格行
+        for line in section_text.split('\n'):
+            line = line.strip()
+            if not line.startswith('|'):
+                continue
+            cells = [c.strip() for c in line.split('|')]
+            # 过滤空单元格和表头分隔行
+            cells = [c for c in cells if c]
+            if len(cells) < 4:
+                continue
+            if re.match(r'^[-:]+$', cells[0]):
+                continue
+            story_id = cells[0]
+            if not re.match(r'^STORY-[A-Z][A-Z0-9]*-[A-Z][A-Z0-9]*-\d+$', story_id):
+                continue
+            # 对应功能编号通常在最后一列或倒数第二列
+            feature_cell = cells[-1] if len(cells) >= 4 else ""
+            features = set(re.findall(r'[A-Z][A-Z0-9]*-[A-Z][A-Z0-9]*-\d+', feature_cell))
+            mapping[story_id] = features
+        return mapping
+
     def _get_coverage_scope(self, data: ExtractedData) -> Optional[Set[str]]:
         """从当前产物头部提取覆盖功能点范围，支持单编号和范围格式（如 USER-001~USER-005）"""
-        match = re.search(r'覆盖功能点[：:]\s*([A-Za-z0-9_\-~,\s]+)', data.raw_text)
+        # 兼容 **覆盖功能点**：xxx 与 覆盖功能点：xxx 两种写法
+        match = re.search(r'\*?\*?覆盖功能点\*?\*?\s*[：:]\s*([A-Za-z0-9_\-~,\s]+)', data.raw_text)
         if not match:
             return None
         ids = set()
@@ -1142,6 +1190,11 @@ class UpstreamRefRule(Rule):
             doc_name = row[0].strip()
             if re.match(r"^:?-+:?$", doc_name):
                 continue
+            # 提取 Markdown 链接中的 URL 部分
+            raw_name = doc_name
+            link_match = re.search(r'\]\(([^)]+)\)', doc_name)
+            if link_match:
+                doc_name = link_match.group(1)
             possible = [doc_name, doc_name + ".md"]
             # 检查1：产物当前目录是否存在
             found_local = any((doc_dir / name).exists() for name in possible)
@@ -1150,11 +1203,11 @@ class UpstreamRefRule(Rule):
                 name in upstream_paths or Path(name).stem in upstream_paths
                 for name in possible
             )
-            if not found_local and not found_via_arg and "规范" not in doc_name and "AGENTS" not in doc_name:
+            if not found_local and not found_via_arg and "规范" not in raw_name and "AGENTS" not in raw_name:
                 issues.append(Issue(
-                    check_id=self.check_id, severity="warning",
+                    check_id=self.check_id, severity="blocking",
                     location="文件头部",
-                    message=f"上游文档 '{doc_name}' 在当前目录未找到，且未通过 --upstream 参数传入，请确认路径"
+                    message=f"上游文档 '{raw_name}' 在当前目录未找到，且未通过 --upstream 参数传入，请确认路径"
                 ))
         return issues
 
@@ -2709,6 +2762,10 @@ class UpstreamIdExistenceRule(Rule):
             upstream_ids.update(up_data.ids)
             # 也尝试从 raw_text 中提取
             upstream_ids.update(re.findall(self.id_pattern, up_data.raw_text))
+        # 同时扫描 top-level 定义文档（全局错误码 ERR-GLOBAL-xxx 定义在 PRD-顶层定义中）
+        for tl_data in ctx.top_level_docs.values():
+            upstream_ids.update(tl_data.ids)
+            upstream_ids.update(re.findall(self.id_pattern, tl_data.raw_text))
 
         issues = []
         missing = current_ids - upstream_ids
@@ -3737,7 +3794,16 @@ class InteractionExceptionToTechRule(Rule):
         inter_codes: Set[str] = set()
         for up_data in ctx.upstream_docs.values():
             extractor = MarkdownExtractor(up_data.raw_text)
+            # 1. 异常处理表格中的错误码列（向后兼容）
             inter_codes.update(extractor.table_column_values(r"异常处理", "错误码"))
+            # 2. 与 PRD 对应表格中的 PRD 错误码列（标准模板中错误码在此引用）
+            prd_code_texts = extractor.table_column_values(r"与 PRD 对应", "PRD 错误码")
+            for text in prd_code_texts:
+                # 支持逗号、顿号分隔的多个错误码，并去除反引号
+                for part in re.split(r"[,，、]", text):
+                    code = part.strip().strip("`").strip()
+                    if code:
+                        inter_codes.add(code)
         inter_codes = {c for c in inter_codes if c}
         if not inter_codes:
             return []
@@ -4095,6 +4161,25 @@ INTERACTION_RULES: List[Rule] = [
     ContractTraceabilityRule("I-C1"),
 ]
 
+
+class UIColorHardcodeRule(Rule):
+    """检查 HTML/CSS 中是否存在非 CSS 变量的硬编码色值，排除 :root 中的变量声明和 HTML 实体"""
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+        self.pattern = re.compile(r"(?<!\&)#[0-9a-fA-F]{3,6}\b|rgba?\s*\(")
+
+    def check(self, data: ExtractedData, ctx: AuditContext) -> List[Issue]:
+        css_blocks = re.findall(r"<style[^>]*>([\s\S]*?)</style>", data.raw_text)
+        css = "\n".join(css_blocks)
+        css_clean = re.sub(r":root\s*\{[\s\S]*?\}", "", css)
+        if self.pattern.search(css_clean):
+            return [Issue(
+                check_id=self.check_id, severity="warning",
+                location="格式检查", message="发现硬编码色值，应使用 CSS 变量"
+            )]
+        return []
+
+
 UI_RULES: List[Rule] = [
     RegexMatchRule("U-A1", r"<!DOCTYPE\s+html", "", severity="blocking",
                    message="缺少 <!DOCTYPE html>"),
@@ -4105,8 +4190,7 @@ UI_RULES: List[Rule] = [
                    message="包含数据请求逻辑，UI 原型应使用静态假数据"),
     RegexMatchRule("U-A5", r"var\(--", "", severity="blocking",
                    message="未使用 CSS 变量（var(--*)）"),
-    RegexMatchRule("U-A6", r"#[0-9a-fA-F]{3,8}\b|rgba?\s*\(", "", should_match=False,
-                   severity="warning", message="发现硬编码色值，应使用 CSS 变量"),
+    UIColorHardcodeRule("U-A6"),
     UIStateMapRule("U-A7"),
     UIClassConsistencyRule("U-A8"),
     StateStyleExistRule("U-B3", ["hover", "active", "focus", "disabled", "loading", "empty", "error", "success", "skeleton"]),
@@ -4410,6 +4494,16 @@ def resolve_skill_top_level_dir() -> Optional[Path]:
     return None
 
 
+def resolve_skill_workflow_dir() -> Optional[Path]:
+    """通过脚本自身位置定位 skill 的 references/workflow/ 目录"""
+    script_path = Path(__file__).resolve()
+    skill_root = script_path.parent.parent
+    workflow_dir = skill_root / "references" / "workflow"
+    if workflow_dir.is_dir():
+        return workflow_dir
+    return None
+
+
 def _is_top_level_document(doc_path: Path) -> bool:
     """根据文件名判断是否为顶层定义文档。"""
     name = doc_path.name.lower()
@@ -4423,89 +4517,6 @@ def _is_interaction_page_chapter(section_name: str) -> bool:
     其中页面编号支持多段连字符（如 PAGE-001、PAGE-USER-CST-001、PAGE-CST-MP-HOME-001）。
     """
     return bool(re.search(r'§\d+\s+[A-Z]+(?:-[A-Z]+)*-\d+', section_name))
-
-
-def parse_model_checklist(step_path: Path, scope_filter: Optional[str] = None) -> dict:
-    """解析步骤模板，提取所有 `[模型]` 检查项，按维度分组。
-
-    模板格式:
-        ## §6 检查清单
-        ### 6.1 结构维度
-        - [ ] **L1** `[脚本]` ...
-        - [ ] **L2** `[模型]` ...
-    """
-    text = step_path.read_text(encoding="utf-8")
-    lines = text.splitlines()
-
-    # 找到检查清单章节（prd/interaction/tech/test 为 §6，ui 为 §5，code-audit-report 为 §4）
-    checklist_start = -1
-    for i, line in enumerate(lines):
-        if re.search(r'^##\s+§[456]\s+检查清单', line):
-            checklist_start = i
-            break
-
-    if checklist_start == -1:
-        return {"dimensions": [], "checkpoints": [], "total": 0}
-
-    dimensions: List[str] = []
-    checkpoints: List[dict] = []
-    current_dimension: Optional[str] = None
-    pattern = re.compile(r'^\s*-\s+\[\s*\]\s+\*\*L(\d+)\*\*\s+`\[模型\]`\s+(.*)$')
-
-    for line in lines[checklist_start:]:
-        # 遇到下一个顶级 ## 标题（非检查清单自身）则停止
-        if re.match(r'^##\s', line) and not re.search(r'^##\s+§[456]\s+检查清单', line):
-            break
-
-        # 维度标题: ### 6.1 结构维度 / ### 6.7 端到端链路 / ### 6.8 版本与边界
-        dim_match = re.match(r'^###\s+\d+\.\d+\s+(.+)$', line)
-        if dim_match:
-            current_dimension = dim_match.group(1).strip()
-            # 统一去掉末尾的"维度"二字，保留"链路""边界"等
-            if current_dimension.endswith('维度'):
-                current_dimension = current_dimension[:-2].strip()
-            dimensions.append(current_dimension)
-            continue
-
-        m = pattern.match(line)
-        if m:
-            level = m.group(1)
-            description = m.group(2).strip()
-            cp = {
-                "id": f"M-{current_dimension or 'UNK'}-L{level}-{len(checkpoints)+1:03d}",
-                "level": f"L{level}",
-                "dimension": current_dimension or "未分类",
-                "description": description,
-            }
-            if scope_filter is None or (current_dimension and scope_filter.lower() in current_dimension.lower()):
-                checkpoints.append(cp)
-
-    return {
-        "dimensions": dimensions,
-        "checkpoints": checkpoints,
-        "total": len(checkpoints),
-    }
-
-
-def generate_model_checklist(doc_type: str, scope_filter: Optional[str] = None) -> dict:
-    """生成指定产物类型的 [模型] 语义检查点清单。"""
-    steps_dir = resolve_skill_steps_dir()
-    if not steps_dir:
-        return {"error": "无法定位 skill 的 references/steps/ 目录（脚本应位于 skill/scripts/ 下）"}
-
-    # 特殊映射: code-audit-report.md 对应 code-audit 类型
-    filename = f"{doc_type}-step.md" if doc_type != "code-audit" else "code-audit-report.md"
-    step_file = steps_dir / filename
-    if not step_file.exists():
-        return {"error": f"步骤模板不存在: {step_file}"}
-
-    result = parse_model_checklist(step_file, scope_filter)
-    result["doc_type"] = doc_type
-    result["template"] = str(step_file)
-    result["mode"] = "model_checklist"
-    if scope_filter:
-        result["scope_filter"] = scope_filter
-    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -4596,9 +4607,16 @@ def analyze_migration(doc_path: Path, doc_type: str) -> dict:
                 return {"error": f"顶层定义模板不存在: {step_file}"}
         else:
             return {"error": "无法定位 skill 的 references/top-level/ 目录"}
+    elif doc_type == "code-audit":
+        workflow_dir = resolve_skill_workflow_dir()
+        if workflow_dir:
+            step_file = workflow_dir / "code-audit-report.md"
+            if not step_file.exists():
+                return {"error": f"代码审计报告模板不存在: {step_file}"}
+        else:
+            return {"error": "无法定位 skill 的 references/workflow/ 目录"}
     else:
-        filename = f"{doc_type}-step.md" if doc_type != "code-audit" else "code-audit-report.md"
-        step_file = steps_dir / filename
+        step_file = steps_dir / f"{doc_type}-step.md"
         if not step_file.exists():
             return {"error": f"步骤模板不存在: {step_file}"}
 
@@ -4634,9 +4652,6 @@ def analyze_migration(doc_path: Path, doc_type: str) -> dict:
             if doc_type == "interaction" and _is_interaction_page_chapter(p):
                 continue
             extra.append(p)
-
-    # 检查清单
-    checklist = parse_model_checklist(step_file)
 
     # 生成改造任务：模板 §2 章节结构是一个整体要求
     tasks: List[dict] = []
@@ -4684,10 +4699,6 @@ def analyze_migration(doc_path: Path, doc_type: str) -> dict:
         "missing_sections": missing,
         "extra_sections": extra,
         "existing_sections": existing,
-        "model_checklist": {
-            "total": checklist["total"],
-            "dimensions": checklist["dimensions"],
-        },
         "migration_tasks": tasks,
         "note": f"产物已有 {len(existing)} 个章节与模板匹配，但这些章节的内容格式是否符合当前模板要求，需通过全量审计确认。"
     }
@@ -4883,8 +4894,6 @@ def main():
     parser.add_argument("--scan-downstream", metavar="DIR", default="", help="扫描下游引用")
     parser.add_argument("--list-rules", action="store_true", help="列出当前支持的所有规则 ID")
     parser.add_argument("--dry-run", action="store_true", help="只列出本次会检查的规则，不执行检查")
-    parser.add_argument("--model-checklist", action="store_true", help="生成 [模型] 语义检查点清单（脚本提取全部检查点，AI 只负责逐条判断填空）")
-    parser.add_argument("--scope", default="", help="按维度筛选检查点（如'数据'、'状态'），仅在 --model-checklist 模式下有效")
     parser.add_argument("--migrate", action="store_true", help="分析产物与当前模板的差异，输出改造任务列表（一键改造入口）")
     parser.add_argument("--transform", action="store_true", help="全量改造分析：结构+内容+链路差距诊断，输出完整改造任务列表")
     args = parser.parse_args()
@@ -4893,16 +4902,6 @@ def main():
         _list_rules()
         sys.exit(0)
 
-    # --model-checklist 模式：脚本提取检查点，AI 只负责填空
-    if args.model_checklist:
-        if not args.type:
-            parser.error("--model-checklist 模式需要 --type 参数")
-        result = generate_model_checklist(args.type, args.scope or None)
-        if "error" in result:
-            print(json.dumps(result, ensure_ascii=False))
-            sys.exit(1)
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-        sys.exit(0)
 
     # --migrate 模式：模板迁移分析
     if args.migrate:
@@ -4927,7 +4926,7 @@ def main():
         sys.exit(0)
 
     if not args.doc_path or not args.type:
-        parser.error("doc_path 和 --type 为必填项（--list-rules / --model-checklist / --migrate 模式除外）")
+        parser.error("doc_path 和 --type 为必填项（--list-rules / --migrate 模式除外）")
 
     doc_path = Path(args.doc_path)
     if not doc_path.exists():
