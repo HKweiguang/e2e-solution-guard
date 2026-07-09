@@ -86,4 +86,4 @@ python3 "$HOME/.agents/skills/e2e-solution-guard/scripts/doc-audit.py" <doc_path
 
 ---
 
-*Skill 版本：v3.16*
+*Skill 版本：v3.3.0*
